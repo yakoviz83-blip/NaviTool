@@ -66,6 +66,12 @@
     margin: 4px 0 14px;
     min-height: 20px;
   }
+  .point-label {
+    font-weight: 700;
+    font-size: 15px;
+    margin-bottom: 4px;
+    text-align: center;
+  }
   .links {
     display: flex;
     flex-direction: column;
@@ -101,15 +107,9 @@
     <button class="primary" id="pickImageBtn" style="background:#33ccff;color:#003a4d">בחר צילום מסך מהגלריה</button>
   </div>
 
-  <div class="coords" id="coordsOut"></div>
   <div class="error" id="errorOut"></div>
 
-  <div class="card links" id="linksBox" style="display:none">
-    <button class="primary" id="shareBtn" style="margin-top:0">שתף מיקום לאפליקציה</button>
-    <a id="wazeLink" class="waze" href="#">Waze</a>
-    <a id="gmapsLink" class="gmaps" href="#">Google Maps</a>
-    <a id="amapsLink" class="amaps" href="#">Apple Maps</a>
-  </div>
+  <div id="resultsBox"></div>
 
   <div class="hint">הוסיפו את הדף הזה למסך הבית לגישה מהירה</div>
 
@@ -119,6 +119,20 @@ function base64UrlToJson(str) {
   while (s.length % 4) s += '=';
   const decoded = atob(s);
   return JSON.parse(decoded);
+}
+
+// Detects a route link with both an origin ("from") and destination ("to"),
+// e.g. dgis://.../from/LON,LAT/to/LON,LAT (seen in Wolt's in-app navigate errors).
+function extractFromTo(raw) {
+  raw = raw.trim();
+  const m = raw.match(/from\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)\/to\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)/i);
+  if (m) {
+    return {
+      from: { lat: parseFloat(m[2]), lng: parseFloat(m[1]) },
+      to: { lat: parseFloat(m[4]), lng: parseFloat(m[3]) }
+    };
+  }
+  return null;
 }
 
 function extractCoords(raw) {
@@ -147,8 +161,7 @@ function extractCoords(raw) {
     } catch (e) { /* fall through */ }
   }
 
-  // Case 3b: nav-app deep links with from/.../to/LON,LAT (e.g. dgis:// route errors from Wolt).
-  // These are destination coords in longitude,latitude order - take the "to" pair and swap.
+  // Case 3b: nav-app deep links with only a to/LON,LAT (destination-only, no origin found)
   const toMatch = raw.match(/\bto\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)/i);
   if (toMatch) {
     return { lat: parseFloat(toMatch[2]), lng: parseFloat(toMatch[1]) };
@@ -163,69 +176,100 @@ function extractCoords(raw) {
   return null;
 }
 
+function buildLinksFromCoords(lat, lng) {
+  return {
+    waze: 'https://waze.com/ul?ll=' + lat + ',' + lng + '&navigate=yes',
+    gmaps: 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng,
+    amaps: 'https://maps.apple.com/?ll=' + lat + ',' + lng + '&q=' + lat + ',' + lng
+  };
+}
+
+function buildLinksFromAddress(address) {
+  const enc = encodeURIComponent(address);
+  return {
+    waze: 'https://waze.com/ul?q=' + enc + '&navigate=yes',
+    gmaps: 'https://www.google.com/maps/search/?api=1&query=' + enc,
+    amaps: 'https://maps.apple.com/?q=' + enc
+  };
+}
+
+function renderPointCard(label, coordsText, links, shareText) {
+  const div = document.createElement('div');
+  div.className = 'card links';
+  div.innerHTML =
+    '<div class="point-label">' + label + '</div>' +
+    '<div class="coords" style="margin:0 0 10px">' + coordsText + '</div>' +
+    '<a class="waze" href="' + links.waze + '">Waze</a>' +
+    '<a class="gmaps" href="' + links.gmaps + '">Google Maps</a>' +
+    '<a class="amaps" href="' + links.amaps + '">Apple Maps</a>' +
+    '<button class="primary share-btn" style="background:#555">שתף מיקום</button>';
+
+  div.querySelector('.share-btn').addEventListener('click', async () => {
+    if (navigator.share) {
+      try { await navigator.share({ title: label, text: shareText, url: links.gmaps }); } catch (e) { /* cancelled */ }
+    } else {
+      document.getElementById('errorOut').textContent = 'שיתוף לא נתמך בדפדפן הזה';
+    }
+  });
+
+  return div;
+}
+
 function processText(raw, autoOpen) {
-  const coordsOut = document.getElementById('coordsOut');
   const errorOut = document.getElementById('errorOut');
-  const linksBox = document.getElementById('linksBox');
+  const resultsBox = document.getElementById('resultsBox');
 
   errorOut.textContent = '';
-  coordsOut.textContent = '';
-  linksBox.style.display = 'none';
+  resultsBox.innerHTML = '';
 
   if (!raw || !raw.trim()) {
     errorOut.textContent = 'הדביקו קישור או קואורדינטות קודם';
     return;
   }
 
+  // Try origin+destination pair first (e.g. Wolt's route link with from/ and to/)
+  const pair = extractFromTo(raw);
+  if (pair) {
+    const fromLat = pair.from.lat.toFixed(5);
+    const fromLng = pair.from.lng.toFixed(5);
+    const toLat = pair.to.lat.toFixed(5);
+    const toLng = pair.to.lng.toFixed(5);
+
+    const fromLinks = buildLinksFromCoords(fromLat, fromLng);
+    const toLinks = buildLinksFromCoords(toLat, toLng);
+
+    resultsBox.appendChild(renderPointCard('📍 מוצא (איסוף)', fromLat + ', ' + fromLng, fromLinks, fromLat + ', ' + fromLng));
+    resultsBox.appendChild(renderPointCard('🏁 יעד (מסירה)', toLat + ', ' + toLng, toLinks, toLat + ', ' + toLng));
+
+    if (autoOpen) {
+      window.location.href = toLinks.waze;
+      setTimeout(() => { window.open(toLinks.gmaps, '_blank'); }, 1200);
+    }
+    return;
+  }
+
+  // Single point
   const result = extractCoords(raw);
-
-  let lat, lng, wazeUrl, gmapsUrl, amapsUrl, shareText;
-
   if (result) {
-    lat = result.lat.toFixed(5);
-    lng = result.lng.toFixed(5);
-    coordsOut.textContent = lat + ', ' + lng;
-    wazeUrl = 'https://waze.com/ul?ll=' + lat + ',' + lng + '&navigate=yes';
-    gmapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng;
-    amapsUrl = 'https://maps.apple.com/?ll=' + lat + ',' + lng + '&q=' + lat + ',' + lng;
-    shareText = lat + ', ' + lng;
-  } else {
-    // Fallback: no coordinates found - treat the text as a plain address and search by name.
-    const address = raw.trim();
-    if (!address) {
-      errorOut.textContent = 'לא הצלחתי לזהות קואורדינטות או כתובת בטקסט הזה';
-      return;
+    const lat = result.lat.toFixed(5);
+    const lng = result.lng.toFixed(5);
+    const links = buildLinksFromCoords(lat, lng);
+    resultsBox.appendChild(renderPointCard('📍 מיקום', lat + ', ' + lng, links, lat + ', ' + lng));
+    if (autoOpen) {
+      window.location.href = links.waze;
+      setTimeout(() => { window.open(links.gmaps, '_blank'); }, 1200);
     }
-    coordsOut.textContent = address;
-    const encoded = encodeURIComponent(address);
-    wazeUrl = 'https://waze.com/ul?q=' + encoded + '&navigate=yes';
-    gmapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + encoded;
-    amapsUrl = 'https://maps.apple.com/?q=' + encoded;
-    shareText = address;
+    return;
   }
 
-  document.getElementById('wazeLink').href = wazeUrl;
-  document.getElementById('gmapsLink').href = gmapsUrl;
-  document.getElementById('amapsLink').href = amapsUrl;
-
-  linksBox.style.display = 'flex';
-
+  // Fallback: plain address text
+  const address = raw.trim();
+  const links = buildLinksFromAddress(address);
+  resultsBox.appendChild(renderPointCard('📍 כתובת', address, links, address));
   if (autoOpen) {
-    // Try to open both apps automatically. Some browsers block a second
-    // automatic app-open, so the buttons above remain as a manual fallback.
-    window.location.href = wazeUrl;
-    setTimeout(() => { window.open(gmapsUrl, '_blank'); }, 1200);
+    window.location.href = links.waze;
+    setTimeout(() => { window.open(links.gmaps, '_blank'); }, 1200);
   }
-
-  document.getElementById('shareBtn').onclick = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: 'מיקום', text: shareText, url: gmapsUrl });
-      } catch (e) { /* user cancelled */ }
-    } else {
-      errorOut.textContent = 'שיתוף לא נתמך בדפדפן הזה, השתמשו בכפתורים למטה';
-    }
-  };
 }
 
 document.getElementById('parseBtn').addEventListener('click', async () => {
@@ -234,7 +278,6 @@ document.getElementById('parseBtn').addEventListener('click', async () => {
 
   errorOut.textContent = '';
 
-  // Try to pull from clipboard first
   if (navigator.clipboard && navigator.clipboard.readText) {
     try {
       const clip = await navigator.clipboard.readText();
@@ -267,7 +310,6 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
-// Register the service worker so shared images/text can be captured via the share sheet
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
@@ -284,8 +326,7 @@ function loadScript(src) {
 
 async function runOcrOnImage(blob) {
   const errorOut = document.getElementById('errorOut');
-  const coordsOut = document.getElementById('coordsOut');
-  coordsOut.textContent = '';
+  document.getElementById('resultsBox').innerHTML = '';
   errorOut.textContent = 'קורא טקסט מהתמונה…';
 
   if (!window.Tesseract) {
@@ -298,7 +339,6 @@ async function runOcrOnImage(blob) {
   processText(data.text, true);
 }
 
-// Auto-process content shared in from another app (Wolt text share, or a screenshot image)
 (function handleSharedContent() {
   const params = new URLSearchParams(window.location.search);
 
@@ -329,7 +369,6 @@ async function runOcrOnImage(blob) {
     return;
   }
 
-  // Fallback: older GET-style share (kept for compatibility)
   const shared = [params.get('text'), params.get('url'), params.get('title')]
     .filter(Boolean)
     .join(' ');
