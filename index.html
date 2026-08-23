@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 01:20</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 01:35</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -315,20 +315,33 @@ function loadScript(src) {
   });
 }
 
+let ocrWorker = null;
+
+async function getOcrWorker() {
+  if (ocrWorker) return ocrWorker;
+  if (!window.Tesseract) {
+    await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+  }
+  ocrWorker = await window.Tesseract.createWorker('eng+heb');
+  // Treat the image as one uniform block of text instead of trying to detect
+  // columns/regions - this reduces the OCR scrambling the reading order on
+  // simple screenshots like a dialog box.
+  await ocrWorker.setParameters({ tessedit_pageseg_mode: window.Tesseract.PSM.SINGLE_BLOCK });
+  return ocrWorker;
+}
+
 async function runOcrOnImage(blob) {
   const errorOut = document.getElementById('errorOut');
   document.getElementById('resultsBox').innerHTML = '';
   errorOut.textContent = 'קורא טקסט מהתמונה…';
 
-  if (!window.Tesseract) {
-    await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
-  }
-
-  const { data } = await window.Tesseract.recognize(blob, 'eng+heb');
+  const worker = await getOcrWorker();
+  const { data } = await worker.recognize(blob);
   errorOut.textContent = '';
   document.getElementById('input').value = data.text;
   processText(data.text, true);
 }
+
 
 (function handleSharedContent() {
   const params = new URLSearchParams(window.location.search);
