@@ -250,9 +250,69 @@ document.getElementById('manualBtn').addEventListener('click', () => {
   processText(inputEl.value);
 });
 
-// Auto-process content shared in from another app (e.g. Wolt's share button)
+// Register the service worker so shared images/text can be captured via the share sheet
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function runOcrOnImage(blob) {
+  const errorOut = document.getElementById('errorOut');
+  const coordsOut = document.getElementById('coordsOut');
+  coordsOut.textContent = '';
+  errorOut.textContent = 'קורא טקסט מהתמונה…';
+
+  if (!window.Tesseract) {
+    await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+  }
+
+  const { data } = await window.Tesseract.recognize(blob, 'eng+heb');
+  errorOut.textContent = '';
+  document.getElementById('input').value = data.text;
+  processText(data.text, true);
+}
+
+// Auto-process content shared in from another app (Wolt text share, or a screenshot image)
 (function handleSharedContent() {
   const params = new URLSearchParams(window.location.search);
+
+  if (params.get('shared') === '1' && 'caches' in window) {
+    (async () => {
+      const cache = await caches.open('navi-share-v1');
+
+      const imageResp = await cache.match('shared-image');
+      if (imageResp) {
+        const blob = await imageResp.blob();
+        await cache.delete('shared-image');
+        try {
+          await runOcrOnImage(blob);
+        } catch (e) {
+          document.getElementById('errorOut').textContent = 'שגיאה בקריאת הטקסט מהתמונה';
+        }
+        return;
+      }
+
+      const textResp = await cache.match('shared-text');
+      if (textResp) {
+        const text = await textResp.text();
+        await cache.delete('shared-text');
+        document.getElementById('input').value = text;
+        processText(text, true);
+      }
+    })();
+    return;
+  }
+
+  // Fallback: older GET-style share (kept for compatibility)
   const shared = [params.get('text'), params.get('url'), params.get('title')]
     .filter(Boolean)
     .join(' ');
