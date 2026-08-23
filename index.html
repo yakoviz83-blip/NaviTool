@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 01:48</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 01:55</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -331,6 +331,33 @@ function loadScript(src) {
 
 let ocrWorker = null;
 
+// Upscale + grayscale + boost contrast before OCR. This makes similar-looking
+// digits (like 3 vs 5) more distinguishable and generally improves accuracy.
+async function preprocessImage(blob) {
+  const bitmap = await createImageBitmap(blob);
+  const scale = 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width * scale;
+  canvas.height = bitmap.height * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imageData.data;
+  const contrast = 1.6;
+  for (let i = 0; i < d.length; i += 4) {
+    const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    let val = (gray - 128) * contrast + 128;
+    val = Math.min(255, Math.max(0, val));
+    d[i] = d[i + 1] = d[i + 2] = val;
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  return new Promise((resolve) => canvas.toBlob((b) => resolve(b || blob), 'image/png'));
+}
+
 async function getOcrWorker() {
   if (ocrWorker) return ocrWorker;
   if (!window.Tesseract) {
@@ -347,10 +374,16 @@ async function getOcrWorker() {
 async function runOcrOnImage(blob) {
   const errorOut = document.getElementById('errorOut');
   document.getElementById('resultsBox').innerHTML = '';
-  errorOut.textContent = 'קורא טקסט מהתמונה…';
+  errorOut.textContent = 'משפר את איכות התמונה…';
 
+  let processedBlob = blob;
+  try {
+    processedBlob = await preprocessImage(blob);
+  } catch (e) { /* if preprocessing fails, fall back to the original image */ }
+
+  errorOut.textContent = 'קורא טקסט מהתמונה…';
   const worker = await getOcrWorker();
-  const { data } = await worker.recognize(blob);
+  const { data } = await worker.recognize(processedBlob);
   errorOut.textContent = '';
   document.getElementById('input').value = data.text;
   processText(data.text, true);
