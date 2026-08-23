@@ -97,6 +97,8 @@
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
     <button class="primary" id="parseBtn">הדבק ועבד מהלוח</button>
     <button class="primary" id="manualBtn" style="background:#555">עבד ידני (מה שכתוב למעלה)</button>
+    <input type="file" id="fileInput" accept="image/*" style="display:none">
+    <button class="primary" id="pickImageBtn" style="background:#33ccff;color:#003a4d">בחר צילום מסך מהגלריה</button>
   </div>
 
   <div class="coords" id="coordsOut"></div>
@@ -248,6 +250,21 @@ document.getElementById('parseBtn').addEventListener('click', async () => {
 document.getElementById('manualBtn').addEventListener('click', () => {
   const inputEl = document.getElementById('input');
   processText(inputEl.value);
+});
+
+document.getElementById('pickImageBtn').addEventListener('click', () => {
+  document.getElementById('fileInput').click();
+});
+
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    await runOcrOnImage(file);
+  } catch (err) {
+    document.getElementById('errorOut').textContent = 'שגיאה בקריאת הטקסט מהתמונה';
+  }
+  e.target.value = '';
 });
 
 // Register the service worker so shared images/text can be captured via the share sheet
