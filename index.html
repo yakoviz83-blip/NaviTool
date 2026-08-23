@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 01:40</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 01:48</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -197,12 +197,26 @@ function buildLinksFromAddress(address) {
   };
 }
 
-function renderPointCard(label, coordsText, links, shareText) {
+// Rough sanity check: is this point somewhere near Israel?
+// Catches classic OCR digit-swap errors (e.g. reading "3" as "5") that would
+// otherwise silently send the driver to the wrong continent.
+function isPlausibleIsrael(lat, lng) {
+  if (lat === undefined || lng === undefined) return true; // not a coordinate - nothing to check
+  return lat >= 29 && lat <= 34 && lng >= 33 && lng <= 36;
+}
+
+function renderPointCard(label, coordsText, links, shareText, lat, lng) {
   const div = document.createElement('div');
   div.className = 'card links';
+  const plausible = isPlausibleIsrael(lat, lng);
+  const warning = plausible ? '' :
+    '<div style="background:#fdecea;color:#c0392b;border-radius:8px;padding:8px;font-size:13px;text-align:center;margin-bottom:10px">' +
+    '⚠️ הקואורדינטות האלה נראות מחוץ לישראל - כנראה טעות זיהוי (OCR). בדוק ידנית לפני שסומכים על זה!' +
+    '</div>';
   div.innerHTML =
     '<div class="point-label">' + label + '</div>' +
     '<div class="coords" style="margin:0 0 10px">' + coordsText + '</div>' +
+    warning +
     '<a class="waze" href="' + links.waze + '">Waze</a>' +
     '<a class="gmaps" href="' + links.gmaps + '">Google Maps</a>' +
     '<a class="amaps" href="' + links.amaps + '">Apple Maps</a>' +
@@ -242,8 +256,8 @@ function processText(raw, autoOpen) {
     const fromLinks = buildLinksFromCoords(fromLat, fromLng);
     const toLinks = buildLinksFromCoords(toLat, toLng);
 
-    resultsBox.appendChild(renderPointCard('📍 מאיפה', fromLat + ', ' + fromLng, fromLinks, fromLat + ', ' + fromLng));
-    resultsBox.appendChild(renderPointCard('🏁 לאן', toLat + ', ' + toLng, toLinks, toLat + ', ' + toLng));
+    resultsBox.appendChild(renderPointCard('📍 מאיפה', fromLat + ', ' + fromLng, fromLinks, fromLat + ', ' + fromLng, pair.from.lat, pair.from.lng));
+    resultsBox.appendChild(renderPointCard('🏁 לאן', toLat + ', ' + toLng, toLinks, toLat + ', ' + toLng, pair.to.lat, pair.to.lng));
     return;
   }
 
@@ -253,7 +267,7 @@ function processText(raw, autoOpen) {
     const lat = result.lat.toFixed(7);
     const lng = result.lng.toFixed(7);
     const links = buildLinksFromCoords(lat, lng);
-    resultsBox.appendChild(renderPointCard('📍 מיקום', lat + ', ' + lng, links, lat + ', ' + lng));
+    resultsBox.appendChild(renderPointCard('📍 מיקום', lat + ', ' + lng, links, lat + ', ' + lng, result.lat, result.lng));
     return;
   }
 
