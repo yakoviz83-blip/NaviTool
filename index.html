@@ -243,11 +243,6 @@ function processText(raw, autoOpen) {
 
     resultsBox.appendChild(renderPointCard('📍 מאיפה', fromLat + ', ' + fromLng, fromLinks, fromLat + ', ' + fromLng));
     resultsBox.appendChild(renderPointCard('🏁 לאן', toLat + ', ' + toLng, toLinks, toLat + ', ' + toLng));
-
-    if (autoOpen) {
-      window.location.href = toLinks.waze;
-      setTimeout(() => { window.open(toLinks.gmaps, '_blank'); }, 1200);
-    }
     return;
   }
 
@@ -258,10 +253,6 @@ function processText(raw, autoOpen) {
     const lng = result.lng.toFixed(5);
     const links = buildLinksFromCoords(lat, lng);
     resultsBox.appendChild(renderPointCard('📍 מיקום', lat + ', ' + lng, links, lat + ', ' + lng));
-    if (autoOpen) {
-      window.location.href = links.waze;
-      setTimeout(() => { window.open(links.gmaps, '_blank'); }, 1200);
-    }
     return;
   }
 
@@ -269,10 +260,6 @@ function processText(raw, autoOpen) {
   const address = raw.trim();
   const links = buildLinksFromAddress(address);
   resultsBox.appendChild(renderPointCard('📍 כתובת', address, links, address));
-  if (autoOpen) {
-    window.location.href = links.waze;
-    setTimeout(() => { window.open(links.gmaps, '_blank'); }, 1200);
-  }
 }
 
 document.getElementById('parseBtn').addEventListener('click', async () => {
