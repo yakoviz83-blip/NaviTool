@@ -92,7 +92,8 @@
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
-    <button class="primary" id="parseBtn">עבד קישור</button>
+    <button class="primary" id="parseBtn">הדבק ועבד מהלוח</button>
+    <button class="primary" id="manualBtn" style="background:#555">עבד ידני (מה שכתוב למעלה)</button>
   </div>
 
   <div class="coords" id="coordsOut"></div>
@@ -150,8 +151,7 @@ function extractCoords(raw) {
   return null;
 }
 
-document.getElementById('parseBtn').addEventListener('click', async () => {
-  const inputEl = document.getElementById('input');
+function processText(raw) {
   const coordsOut = document.getElementById('coordsOut');
   const errorOut = document.getElementById('errorOut');
   const linksBox = document.getElementById('linksBox');
@@ -159,18 +159,6 @@ document.getElementById('parseBtn').addEventListener('click', async () => {
   errorOut.textContent = '';
   coordsOut.textContent = '';
   linksBox.style.display = 'none';
-
-  // Try to pull from clipboard first
-  if (navigator.clipboard && navigator.clipboard.readText) {
-    try {
-      const clip = await navigator.clipboard.readText();
-      if (clip && clip.trim()) {
-        inputEl.value = clip.trim();
-      }
-    } catch (e) { /* clipboard permission denied, fall back to whatever is typed */ }
-  }
-
-  const raw = inputEl.value;
 
   if (!raw || !raw.trim()) {
     errorOut.textContent = 'הדביקו קישור או קואורדינטות קודם';
@@ -205,6 +193,30 @@ document.getElementById('parseBtn').addEventListener('click', async () => {
       errorOut.textContent = 'שיתוף לא נתמך בדפדפן הזה, השתמשו בכפתורים למטה';
     }
   };
+}
+
+document.getElementById('parseBtn').addEventListener('click', async () => {
+  const inputEl = document.getElementById('input');
+  const errorOut = document.getElementById('errorOut');
+
+  errorOut.textContent = '';
+
+  // Try to pull from clipboard first
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    try {
+      const clip = await navigator.clipboard.readText();
+      if (clip && clip.trim()) {
+        inputEl.value = clip.trim();
+      }
+    } catch (e) { /* clipboard permission denied, fall back to whatever is typed */ }
+  }
+
+  processText(inputEl.value);
+});
+
+document.getElementById('manualBtn').addEventListener('click', () => {
+  const inputEl = document.getElementById('input');
+  processText(inputEl.value);
 });
 </script>
 </body>
