@@ -125,7 +125,7 @@ function base64UrlToJson(str) {
 // e.g. dgis://.../from/LON,LAT/to/LON,LAT (seen in Wolt's in-app navigate errors).
 function extractFromTo(raw) {
   raw = raw.trim();
-  const m = raw.match(/from\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)\/to\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)/i);
+  const m = raw.match(/from\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)\/t[o0]\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)/i);
   if (m) {
     return {
       from: { lat: parseFloat(m[2]), lng: parseFloat(m[1]) },
@@ -162,7 +162,7 @@ function extractCoords(raw) {
   }
 
   // Case 3b: nav-app deep links with only a to/LON,LAT (destination-only, no origin found)
-  const toMatch = raw.match(/\bto\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)/i);
+  const toMatch = raw.match(/\bt[o0]\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)/i);
   if (toMatch) {
     return { lat: parseFloat(toMatch[2]), lng: parseFloat(toMatch[1]) };
   }
@@ -238,8 +238,8 @@ function processText(raw, autoOpen) {
     const fromLinks = buildLinksFromCoords(fromLat, fromLng);
     const toLinks = buildLinksFromCoords(toLat, toLng);
 
-    resultsBox.appendChild(renderPointCard('📍 מוצא (איסוף)', fromLat + ', ' + fromLng, fromLinks, fromLat + ', ' + fromLng));
-    resultsBox.appendChild(renderPointCard('🏁 יעד (מסירה)', toLat + ', ' + toLng, toLinks, toLat + ', ' + toLng));
+    resultsBox.appendChild(renderPointCard('📍 מאיפה', fromLat + ', ' + fromLng, fromLinks, fromLat + ', ' + fromLng));
+    resultsBox.appendChild(renderPointCard('🏁 לאן', toLat + ', ' + toLng, toLinks, toLat + ', ' + toLng));
 
     if (autoOpen) {
       window.location.href = toLinks.waze;
