@@ -177,19 +177,30 @@ function processText(raw, autoOpen) {
 
   const result = extractCoords(raw);
 
-  if (!result) {
-    errorOut.textContent = 'לא הצלחתי לזהות קואורדינטות בטקסט הזה';
-    return;
+  let lat, lng, wazeUrl, gmapsUrl, amapsUrl, shareText;
+
+  if (result) {
+    lat = result.lat.toFixed(5);
+    lng = result.lng.toFixed(5);
+    coordsOut.textContent = lat + ', ' + lng;
+    wazeUrl = 'https://waze.com/ul?ll=' + lat + ',' + lng + '&navigate=yes';
+    gmapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng;
+    amapsUrl = 'https://maps.apple.com/?ll=' + lat + ',' + lng + '&q=' + lat + ',' + lng;
+    shareText = lat + ', ' + lng;
+  } else {
+    // Fallback: no coordinates found - treat the text as a plain address and search by name.
+    const address = raw.trim();
+    if (!address) {
+      errorOut.textContent = 'לא הצלחתי לזהות קואורדינטות או כתובת בטקסט הזה';
+      return;
+    }
+    coordsOut.textContent = address;
+    const encoded = encodeURIComponent(address);
+    wazeUrl = 'https://waze.com/ul?q=' + encoded + '&navigate=yes';
+    gmapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + encoded;
+    amapsUrl = 'https://maps.apple.com/?q=' + encoded;
+    shareText = address;
   }
-
-  const lat = result.lat.toFixed(5);
-  const lng = result.lng.toFixed(5);
-
-  coordsOut.textContent = lat + ', ' + lng;
-
-  const wazeUrl = 'https://waze.com/ul?ll=' + lat + ',' + lng + '&navigate=yes';
-  const gmapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng;
-  const amapsUrl = 'https://maps.apple.com/?ll=' + lat + ',' + lng + '&q=' + lat + ',' + lng;
 
   document.getElementById('wazeLink').href = wazeUrl;
   document.getElementById('gmapsLink').href = gmapsUrl;
@@ -205,10 +216,9 @@ function processText(raw, autoOpen) {
   }
 
   document.getElementById('shareBtn').onclick = async () => {
-    const shareUrl = 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng;
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'מיקום', text: lat + ', ' + lng, url: shareUrl });
+        await navigator.share({ title: 'מיקום', text: shareText, url: gmapsUrl });
       } catch (e) { /* user cancelled */ }
     } else {
       errorOut.textContent = 'שיתוף לא נתמך בדפדפן הזה, השתמשו בכפתורים למטה';
