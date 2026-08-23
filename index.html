@@ -6,6 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="ניווט">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>ניווט מהיר</title>
 <style>
   * { box-sizing: border-box; }
@@ -218,6 +221,18 @@ document.getElementById('manualBtn').addEventListener('click', () => {
   const inputEl = document.getElementById('input');
   processText(inputEl.value);
 });
+
+// Auto-process content shared in from another app (e.g. Wolt's share button)
+(function handleSharedContent() {
+  const params = new URLSearchParams(window.location.search);
+  const shared = [params.get('text'), params.get('url'), params.get('title')]
+    .filter(Boolean)
+    .join(' ');
+  if (shared) {
+    document.getElementById('input').value = shared;
+    processText(shared);
+  }
+})();
 </script>
 </body>
 </html>
