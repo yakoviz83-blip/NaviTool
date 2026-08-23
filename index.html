@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ניווט">
+<title>ניווט מהיר</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f2f2f2;
+    color: #1a1a1a;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 8px 0 20px;
+  }
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 16px;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    margin-bottom: 16px;
+  }
+  textarea {
+    width: 100%;
+    min-height: 70px;
+    border-radius: 10px;
+    border: 1px solid #ddd;
+    padding: 10px;
+    font-size: 15px;
+    resize: vertical;
+    font-family: inherit;
+  }
+  button.primary {
+    width: 100%;
+    margin-top: 10px;
+    height: 46px;
+    border: none;
+    border-radius: 10px;
+    background: #1a1a1a;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  button.primary:active { opacity: 0.8; }
+  .coords {
+    text-align: center;
+    font-size: 15px;
+    color: #555;
+    margin: 4px 0 14px;
+    min-height: 20px;
+  }
+  .links {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .links a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 48px;
+    border-radius: 10px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 15px;
+    color: #fff;
+  }
+  .waze { background: #33ccff; color: #003a4d; }
+  .gmaps { background: #34a853; }
+  .amaps { background: #2c2c2e; }
+  .error { color: #c0392b; font-size: 14px; text-align: center; min-height: 18px; }
+  .hint { font-size: 12px; color: #999; text-align: center; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <h1>ניווט מהיר</h1>
+
+  <div class="card">
+    <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
+    <button class="primary" id="parseBtn">עבד קישור</button>
+  </div>
+
+  <div class="coords" id="coordsOut"></div>
+  <div class="error" id="errorOut"></div>
+
+  <div class="card links" id="linksBox" style="display:none">
+    <button class="primary" id="shareBtn" style="margin-top:0">שתף מיקום לאפליקציה</button>
+    <a id="wazeLink" class="waze" href="#">Waze</a>
+    <a id="gmapsLink" class="gmaps" href="#">Google Maps</a>
+    <a id="amapsLink" class="amaps" href="#">Apple Maps</a>
+  </div>
+
+  <div class="hint">הוסיפו את הדף הזה למסך הבית לגישה מהירה</div>
+
+<script>
+function base64UrlToJson(str) {
+  let s = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const decoded = atob(s);
+  return JSON.parse(decoded);
+}
+
+function extractCoords(raw) {
+  raw = raw.trim();
+
+  // Case 1: plain "lat, lng"
+  const plainMatch = raw.match(/^(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)$/);
+  if (plainMatch) {
+    return { lat: parseFloat(plainMatch[1]), lng: parseFloat(plainMatch[2]) };
+  }
+
+  // Case 2: URL with lat/lng-ish query params (google maps, waze, etc.)
+  const llMatch = raw.match(/[?&](?:ll|q|query)=(-?\d{1,3}\.\d+)[,%2C]+(-?\d{1,3}\.\d+)/i);
+  if (llMatch) {
+    return { lat: parseFloat(llMatch[1]), lng: parseFloat(llMatch[2]) };
+  }
+
+  // Case 3: HERE share link with base64 payload after /p/e-
+  const hereMatch = raw.match(/\/p\/e-([A-Za-z0-9_-]+)/);
+  if (hereMatch) {
+    try {
+      const data = base64UrlToJson(hereMatch[1]);
+      if (data.latitude !== undefined && data.longitude !== undefined) {
+        return { lat: data.latitude, lng: data.longitude };
+      }
+    } catch (e) { /* fall through */ }
+  }
+
+  // Case 4: any two decimal numbers found anywhere in the text
+  const anyMatch = raw.match(/(-?\d{1,3}\.\d{3,})[^\d-]+(-?\d{1,3}\.\d{3,})/);
+  if (anyMatch) {
+    return { lat: parseFloat(anyMatch[1]), lng: parseFloat(anyMatch[2]) };
+  }
+
+  return null;
+}
+
+document.getElementById('parseBtn').addEventListener('click', async () => {
+  const inputEl = document.getElementById('input');
+  const coordsOut = document.getElementById('coordsOut');
+  const errorOut = document.getElementById('errorOut');
+  const linksBox = document.getElementById('linksBox');
+
+  errorOut.textContent = '';
+  coordsOut.textContent = '';
+  linksBox.style.display = 'none';
+
+  // Try to pull from clipboard first
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    try {
+      const clip = await navigator.clipboard.readText();
+      if (clip && clip.trim()) {
+        inputEl.value = clip.trim();
+      }
+    } catch (e) { /* clipboard permission denied, fall back to whatever is typed */ }
+  }
+
+  const raw = inputEl.value;
+
+  if (!raw || !raw.trim()) {
+    errorOut.textContent = 'הדביקו קישור או קואורדינטות קודם';
+    return;
+  }
+
+  const result = extractCoords(raw);
+
+  if (!result) {
+    errorOut.textContent = 'לא הצלחתי לזהות קואורדינטות בטקסט הזה';
+    return;
+  }
+
+  const lat = result.lat.toFixed(5);
+  const lng = result.lng.toFixed(5);
+
+  coordsOut.textContent = lat + ', ' + lng;
+
+  document.getElementById('wazeLink').href = 'https://waze.com/ul?ll=' + lat + ',' + lng + '&navigate=yes';
+  document.getElementById('gmapsLink').href = 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng;
+  document.getElementById('amapsLink').href = 'https://maps.apple.com/?ll=' + lat + ',' + lng + '&q=' + lat + ',' + lng;
+
+  linksBox.style.display = 'flex';
+
+  document.getElementById('shareBtn').onclick = async () => {
+    const shareUrl = 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'מיקום', text: lat + ', ' + lng, url: shareUrl });
+      } catch (e) { /* user cancelled */ }
+    } else {
+      errorOut.textContent = 'שיתוף לא נתמך בדפדפן הזה, השתמשו בכפתורים למטה';
+    }
+  };
+});
+</script>
+</body>
+</html>
