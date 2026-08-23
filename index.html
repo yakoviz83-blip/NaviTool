@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 01:55</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 02:05</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -130,9 +130,11 @@ function extractFromTo(raw) {
   raw = raw.replace(/\s+/g, '');
   const m = raw.match(/from\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)\/t[o0]\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)/i);
   if (m) {
+    // Keep the original digit strings as-is (no rounding) - Wolt's links don't
+    // always use the same number of decimal places for every point.
     return {
-      from: { lat: parseFloat(m[2]), lng: parseFloat(m[1]) },
-      to: { lat: parseFloat(m[4]), lng: parseFloat(m[3]) }
+      from: { lat: m[2], lng: m[1] },
+      to: { lat: m[4], lng: m[3] }
     };
   }
   return null;
@@ -145,13 +147,13 @@ function extractCoords(raw) {
   // Case 1: plain "lat, lng"
   const plainMatch = raw.match(/^(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)$/);
   if (plainMatch) {
-    return { lat: parseFloat(plainMatch[1]), lng: parseFloat(plainMatch[2]) };
+    return { lat: plainMatch[1], lng: plainMatch[2] };
   }
 
   // Case 2: URL with lat/lng-ish query params (google maps, waze, etc.)
   const llMatch = raw.match(/[?&](?:ll|q|query)=(-?\d{1,3}\.\d+)[,%2C]+(-?\d{1,3}\.\d+)/i);
   if (llMatch) {
-    return { lat: parseFloat(llMatch[1]), lng: parseFloat(llMatch[2]) };
+    return { lat: llMatch[1], lng: llMatch[2] };
   }
 
   // Case 3: HERE share link with base64 payload after /p/e-
@@ -160,7 +162,7 @@ function extractCoords(raw) {
     try {
       const data = base64UrlToJson(hereMatch[1]);
       if (data.latitude !== undefined && data.longitude !== undefined) {
-        return { lat: data.latitude, lng: data.longitude };
+        return { lat: String(data.latitude), lng: String(data.longitude) };
       }
     } catch (e) { /* fall through */ }
   }
@@ -168,13 +170,13 @@ function extractCoords(raw) {
   // Case 3b: nav-app deep links with only a to/LON,LAT (destination-only, no origin found)
   const toMatch = raw.match(/\bt[o0]\/(-?\d{1,3}\.\d+)[,\/](-?\d{1,3}\.\d+)/i);
   if (toMatch) {
-    return { lat: parseFloat(toMatch[2]), lng: parseFloat(toMatch[1]) };
+    return { lat: toMatch[2], lng: toMatch[1] };
   }
 
   // Case 4: any two decimal numbers found anywhere in the text
   const anyMatch = raw.match(/(-?\d{1,3}\.\d{3,})[^\d-]+(-?\d{1,3}\.\d{3,})/);
   if (anyMatch) {
-    return { lat: parseFloat(anyMatch[1]), lng: parseFloat(anyMatch[2]) };
+    return { lat: anyMatch[1], lng: anyMatch[2] };
   }
 
   return null;
@@ -248,26 +250,28 @@ function processText(raw, autoOpen) {
   // Try origin+destination pair first (e.g. Wolt's route link with from/ and to/)
   const pair = extractFromTo(raw);
   if (pair) {
-    const fromLat = pair.from.lat.toFixed(7);
-    const fromLng = pair.from.lng.toFixed(7);
-    const toLat = pair.to.lat.toFixed(7);
-    const toLng = pair.to.lng.toFixed(7);
+    // Use the raw digit strings exactly as found - no rounding - since Wolt
+    // doesn't always use the same number of decimal places for every point.
+    const fromLat = pair.from.lat;
+    const fromLng = pair.from.lng;
+    const toLat = pair.to.lat;
+    const toLng = pair.to.lng;
 
     const fromLinks = buildLinksFromCoords(fromLat, fromLng);
     const toLinks = buildLinksFromCoords(toLat, toLng);
 
-    resultsBox.appendChild(renderPointCard('📍 מאיפה', fromLat + ', ' + fromLng, fromLinks, fromLat + ', ' + fromLng, pair.from.lat, pair.from.lng));
-    resultsBox.appendChild(renderPointCard('🏁 לאן', toLat + ', ' + toLng, toLinks, toLat + ', ' + toLng, pair.to.lat, pair.to.lng));
+    resultsBox.appendChild(renderPointCard('📍 מאיפה', fromLat + ', ' + fromLng, fromLinks, fromLat + ', ' + fromLng, parseFloat(fromLat), parseFloat(fromLng)));
+    resultsBox.appendChild(renderPointCard('🏁 לאן', toLat + ', ' + toLng, toLinks, toLat + ', ' + toLng, parseFloat(toLat), parseFloat(toLng)));
     return;
   }
 
   // Single point
   const result = extractCoords(raw);
   if (result) {
-    const lat = result.lat.toFixed(7);
-    const lng = result.lng.toFixed(7);
+    const lat = result.lat;
+    const lng = result.lng;
     const links = buildLinksFromCoords(lat, lng);
-    resultsBox.appendChild(renderPointCard('📍 מיקום', lat + ', ' + lng, links, lat + ', ' + lng, result.lat, result.lng));
+    resultsBox.appendChild(renderPointCard('📍 מיקום', lat + ', ' + lng, links, lat + ', ' + lng, parseFloat(lat), parseFloat(lng)));
     return;
   }
 
