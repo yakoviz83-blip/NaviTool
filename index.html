@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 02:05</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 02:15</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -106,6 +106,7 @@
     <button class="primary" id="manualBtn" style="background:#555">עבד ידני (מה שכתוב למעלה)</button>
     <input type="file" id="fileInput" accept="image/*" style="display:none">
     <button class="primary" id="pickImageBtn" style="background:#33ccff;color:#003a4d">בחר צילום מסך מהגלריה</button>
+    <button class="primary" id="micBtn" style="background:#e91e63">🎤 הקלטה קולית</button>
   </div>
 
   <div class="error" id="errorOut"></div>
@@ -306,6 +307,47 @@ document.getElementById('manualBtn').addEventListener('click', () => {
 
 document.getElementById('pickImageBtn').addEventListener('click', () => {
   document.getElementById('fileInput').click();
+});
+
+document.getElementById('micBtn').addEventListener('click', () => {
+  const errorOut = document.getElementById('errorOut');
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    errorOut.textContent = 'זיהוי קולי לא נתמך בדפדפן הזה';
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'he-IL';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  errorOut.textContent = '🎤 מקשיב… דבר עכשיו';
+  document.getElementById('resultsBox').innerHTML = '';
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    document.getElementById('input').value = transcript;
+    errorOut.textContent = '';
+    processText(transcript);
+  };
+
+  recognition.onerror = (event) => {
+    errorOut.textContent = 'שגיאה בזיהוי קולי: ' + event.error;
+  };
+
+  recognition.onend = () => {
+    if (errorOut.textContent === '🎤 מקשיב… דבר עכשיו') {
+      errorOut.textContent = '';
+    }
+  };
+
+  try {
+    recognition.start();
+  } catch (e) {
+    errorOut.textContent = 'לא ניתן להפעיל זיהוי קולי כרגע';
+  }
 });
 
 document.getElementById('fileInput').addEventListener('change', async (e) => {
