@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 02:15</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 02:28</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -107,7 +107,10 @@
     <input type="file" id="fileInput" accept="image/*" style="display:none">
     <button class="primary" id="pickImageBtn" style="background:#33ccff;color:#003a4d">בחר צילום מסך מהגלריה</button>
     <button class="primary" id="micBtn" style="background:#e91e63">🎤 הקלטה קולית</button>
+    <button class="primary" id="myLocationBtn" style="background:#34a853">📍 המיקום שלי</button>
   </div>
+
+  <div id="mapContainer" style="display:none;height:220px;border-radius:16px;overflow:hidden;margin-bottom:16px;max-width:420px;width:100%"></div>
 
   <div class="error" id="errorOut"></div>
 
@@ -374,6 +377,68 @@ function loadScript(src) {
     document.head.appendChild(s);
   });
 }
+
+function loadStylesheet(href) {
+  return new Promise((resolve, reject) => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    link.onload = resolve;
+    link.onerror = reject;
+    document.head.appendChild(link);
+  });
+}
+
+let naviMap = null;
+
+async function showMiniMap(lat, lng) {
+  const mapContainer = document.getElementById('mapContainer');
+  mapContainer.style.display = 'block';
+
+  if (!window.L) {
+    await loadStylesheet('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+    await loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
+  }
+
+  if (naviMap) {
+    naviMap.remove();
+  }
+
+  naviMap = window.L.map('mapContainer').setView([lat, lng], 16);
+  window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(naviMap);
+  window.L.marker([lat, lng]).addTo(naviMap);
+}
+
+document.getElementById('myLocationBtn').addEventListener('click', () => {
+  const errorOut = document.getElementById('errorOut');
+
+  if (!navigator.geolocation) {
+    errorOut.textContent = 'שירותי מיקום לא נתמכים בדפדפן הזה';
+    return;
+  }
+
+  errorOut.textContent = 'מאתר מיקום…';
+  document.getElementById('resultsBox').innerHTML = '';
+
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      errorOut.textContent = '';
+      const lat = pos.coords.latitude.toFixed(7);
+      const lng = pos.coords.longitude.toFixed(7);
+      document.getElementById('input').value = lat + ', ' + lng;
+      processText(lat + ', ' + lng);
+      try {
+        await showMiniMap(pos.coords.latitude, pos.coords.longitude);
+      } catch (e) { /* map failed to load - the coordinate card still works fine */ }
+    },
+    (err) => {
+      errorOut.textContent = 'לא ניתן לאתר מיקום: ' + err.message;
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+});
 
 let ocrWorker = null;
 
