@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 03:15</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 03:25</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -115,6 +115,7 @@
     <input type="number" id="zoomThresholdInput" value="50" min="5" step="5" style="width:60px;text-align:center;border-radius:8px;border:1px solid #ddd;padding:4px">
     מטר
   </div>
+  <div id="headingDebug" style="text-align:center;font-size:13px;color:#555;margin-bottom:8px">כיוון: --°</div>
   <div id="mapContainer" style="display:none;height:220px;border-radius:16px;overflow:hidden;margin-bottom:16px;max-width:420px;width:100%"></div>
 
   <div class="error" id="errorOut"></div>
@@ -479,14 +480,23 @@ async function setupCompassListener() {
   }
 
   const handler = (event) => {
-    let heading = null;
+    let rawHeading = null;
     if (typeof event.webkitCompassHeading === 'number') {
-      heading = event.webkitCompassHeading; // iOS: already compass-style, clockwise from North
+      rawHeading = event.webkitCompassHeading; // iOS: already compass-style, clockwise from North
     } else if (typeof event.alpha === 'number') {
-      heading = 360 - event.alpha; // convert to clockwise-from-North compass heading
+      rawHeading = 360 - event.alpha; // convert to clockwise-from-North compass heading
     }
-    if (heading !== null && !isNaN(heading)) {
-      compassHeading = heading;
+    if (rawHeading !== null && !isNaN(rawHeading)) {
+      // The raw reading points to the back of the phone for this sensor orientation -
+      // subtract 180° so the arrow follows the direction the front/top actually faces.
+      const adjusted = ((rawHeading - 180) % 360 + 360) % 360;
+      compassHeading = adjusted;
+
+      const debugEl = document.getElementById('headingDebug');
+      if (debugEl) {
+        debugEl.textContent = 'כיוון גולמי: ' + Math.round(rawHeading) + '° · מתוקן (-180°): ' + Math.round(adjusted) + '°';
+      }
+
       if (myLocationMarker && naviMap) {
         myLocationMarker.setIcon(myLocationIcon(currentHeading()));
       }
