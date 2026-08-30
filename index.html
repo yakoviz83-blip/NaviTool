@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 02:45</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 03:00</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -435,13 +435,64 @@ function stopLiveUpdate() {
   }
 }
 
-function myLocationIcon() {
+let compassHeading = null;
+let compassListenerAdded = false;
+
+function myLocationIcon(heading) {
+  if (typeof heading === 'number' && !isNaN(heading)) {
+    return window.L.divIcon({
+      className: '',
+      html: '<div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;' +
+        'border-bottom:15px solid #4285F4;transform:rotate(' + heading + 'deg);transform-origin:50% 85%;' +
+        'filter:drop-shadow(0 0 2px white)"></div>',
+      iconSize: [20, 20],
+      iconAnchor: [10, 12]
+    });
+  }
+  // No heading available yet - plain dot
   return window.L.divIcon({
     className: '',
     html: '<div style="width:14px;height:14px;background:#4285F4;border:2px solid white;border-radius:50%;box-shadow:0 0 4px rgba(0,0,0,0.5)"></div>',
     iconSize: [14, 14],
     iconAnchor: [7, 7]
   });
+}
+
+function currentHeading(gpsHeading) {
+  if (typeof gpsHeading === 'number' && !isNaN(gpsHeading)) return gpsHeading;
+  if (typeof compassHeading === 'number' && !isNaN(compassHeading)) return compassHeading;
+  return null;
+}
+
+async function setupCompassListener() {
+  if (compassListenerAdded) return;
+  compassListenerAdded = true;
+
+  // iOS requires an explicit permission prompt - harmless no-op on Android/Chrome.
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try { await DeviceOrientationEvent.requestPermission(); } catch (e) { /* ignore */ }
+  }
+
+  const handler = (event) => {
+    let heading = null;
+    if (typeof event.webkitCompassHeading === 'number') {
+      heading = event.webkitCompassHeading; // iOS: already compass-style, clockwise from North
+    } else if (typeof event.alpha === 'number') {
+      heading = 360 - event.alpha; // convert to clockwise-from-North compass heading
+    }
+    if (heading !== null && !isNaN(heading)) {
+      compassHeading = heading;
+      if (myLocationMarker && naviMap) {
+        myLocationMarker.setIcon(myLocationIcon(currentHeading()));
+      }
+    }
+  };
+
+  if ('ondeviceorientationabsolute' in window) {
+    window.addEventListener('deviceorientationabsolute', handler, true);
+  } else {
+    window.addEventListener('deviceorientation', handler, true);
+  }
 }
 
 function destinationIcon() {
@@ -475,7 +526,8 @@ async function showMiniMap(lat, lng) {
   window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(naviMap);
-  myLocationMarker = window.L.marker([lat, lng], { icon: myLocationIcon() }).addTo(naviMap).bindPopup('המיקום שלי');
+  myLocationMarker = window.L.marker([lat, lng], { icon: myLocationIcon(currentHeading()) }).addTo(naviMap).bindPopup('המיקום שלי');
+  await setupCompassListener();
 }
 
 // Show a destination pin + my live location, refreshed every 5 seconds
@@ -503,16 +555,24 @@ async function showLiveMapToDestination(destLat, destLng, label) {
 
   destMarker = window.L.marker([destLat, destLng], { icon: destinationIcon() }).addTo(naviMap).bindPopup(label || 'יעד');
 
+  await setupCompassListener();
+
   function updateMyLocation() {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
+        // Prefer GPS-derived heading while actually moving; otherwise fall back to the compass
+        const gpsHeading = (typeof pos.coords.heading === 'number' && !isNaN(pos.coords.heading) && pos.coords.speed > 0.5)
+          ? pos.coords.heading : null;
+        const heading = currentHeading(gpsHeading);
+
         if (myLocationMarker) {
           myLocationMarker.setLatLng([lat, lng]);
+          myLocationMarker.setIcon(myLocationIcon(heading));
         } else {
-          myLocationMarker = window.L.marker([lat, lng], { icon: myLocationIcon() }).addTo(naviMap).bindPopup('המיקום שלי');
+          myLocationMarker = window.L.marker([lat, lng], { icon: myLocationIcon(heading) }).addTo(naviMap).bindPopup('המיקום שלי');
         }
       },
       () => { /* keep showing last known position if this update fails */ },
