@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 04:45</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 04:55</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -406,12 +406,23 @@ function startVoiceRecognition() {
 
 document.getElementById('micBtn').addEventListener('click', startVoiceRecognition);
 
-// Launched from the "הקלטה קולית" home-screen shortcut - jump straight into voice mode
-if (new URLSearchParams(window.location.search).get('action') === 'voice') {
-  window.addEventListener('load', () => {
+// Launched from the "הקלטה קולית" home-screen shortcut - jump straight into voice mode.
+// Android often just brings an already-open instance to the foreground instead of
+// reloading the page, so we retrigger on every "became visible" event too, not just
+// the initial page load.
+function maybeAutoStartVoice() {
+  if (new URLSearchParams(window.location.search).get('action') === 'voice') {
     setTimeout(startVoiceRecognition, 300);
-  });
+  }
 }
+
+maybeAutoStartVoice();
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    maybeAutoStartVoice();
+  }
+});
 
 document.getElementById('fileInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
