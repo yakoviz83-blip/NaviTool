@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 04:20</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 04:30</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -106,6 +106,8 @@
     <button class="primary" id="manualBtn" style="background:#555">עבד ידני (מה שכתוב למעלה)</button>
     <input type="file" id="fileInput" accept="image/*" style="display:none">
     <button class="primary" id="pickImageBtn" style="background:#33ccff;color:#003a4d">בחר צילום מסך מהגלריה</button>
+    <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
+    <button class="primary" id="cameraBtn" style="background:#ff9800">📷 צלם עכשיו</button>
     <button class="primary" id="micBtn" style="background:#e91e63">🎤 הקלטה קולית</button>
     <button class="primary" id="myLocationBtn" style="background:#34a853">📍 המיקום שלי</button>
   </div>
@@ -357,6 +359,10 @@ document.getElementById('pickImageBtn').addEventListener('click', () => {
   document.getElementById('fileInput').click();
 });
 
+document.getElementById('cameraBtn').addEventListener('click', () => {
+  document.getElementById('cameraInput').click();
+});
+
 document.getElementById('micBtn').addEventListener('click', () => {
   const errorOut = document.getElementById('errorOut');
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -399,6 +405,17 @@ document.getElementById('micBtn').addEventListener('click', () => {
 });
 
 document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    await runOcrOnImage(file);
+  } catch (err) {
+    document.getElementById('errorOut').textContent = 'שגיאה בקריאת הטקסט מהתמונה';
+  }
+  e.target.value = '';
+});
+
+document.getElementById('cameraInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   try {
