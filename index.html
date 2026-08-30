@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 04:15</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 04:20</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -449,8 +449,9 @@ function stopLiveUpdate() {
 let compassHeading = null;
 let compassListenerAdded = false;
 
-// Extra calibration flip on top of the compass -180 correction already applied upstream.
-const ARROW_ROTATION_OFFSET = 180;
+// Calibration offset applied on top of the compass -180 correction from
+// setupCompassListener. Kept at 0 (the setting that measured correctly).
+const ARROW_ROTATION_OFFSET = 0;
 
 function myLocationIcon(heading) {
   if (typeof heading === 'number' && !isNaN(heading)) {
@@ -503,7 +504,7 @@ async function setupCompassListener() {
 
       const debugEl = document.getElementById('headingDebug');
       if (debugEl) {
-        const displayed = ((adjusted + 180) % 360 + 360) % 360;
+        const displayed = ((adjusted + ARROW_ROTATION_OFFSET) % 360 + 360) % 360;
         debugEl.textContent = 'גולמי: ' + Math.round(rawHeading) + '° · חץ בפועל: ' + Math.round(displayed) + '°';
       }
 
