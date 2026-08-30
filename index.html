@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 04:00</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 04:15</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -213,6 +213,39 @@ function isPlausibleIsrael(lat, lng) {
   return lat >= 29 && lat <= 34 && lng >= 33 && lng <= 36;
 }
 
+async function showResultOnMap(label, lat, lng, addressText) {
+  const errorOut = document.getElementById('errorOut');
+  let destLat = lat;
+  let destLng = lng;
+
+  if (destLat === undefined || destLng === undefined || isNaN(destLat) || isNaN(destLng)) {
+    // Address-only - geocode the address text first
+    errorOut.textContent = 'מאתר את הכתובת על המפה…';
+    try {
+      const resp = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(addressText));
+      const results = await resp.json();
+      if (results && results.length) {
+        destLat = parseFloat(results[0].lat);
+        destLng = parseFloat(results[0].lon);
+      } else {
+        errorOut.textContent = 'לא הצלחתי לאתר את הכתובת על המפה';
+        return;
+      }
+    } catch (e) {
+      errorOut.textContent = 'שגיאה באיתור הכתובת על המפה';
+      return;
+    }
+  }
+
+  errorOut.textContent = '';
+  try {
+    await showLiveMapToDestination(destLat, destLng, label);
+    document.getElementById('mapContainer').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (e) {
+    errorOut.textContent = 'שגיאה בטעינת המפה';
+  }
+}
+
 function renderPointCard(label, coordsText, links, shareText, lat, lng) {
   const div = document.createElement('div');
   div.className = 'card links';
@@ -239,37 +272,8 @@ function renderPointCard(label, coordsText, links, shareText, lat, lng) {
     }
   });
 
-  div.querySelector('.map-btn').addEventListener('click', async () => {
-    const errorOut = document.getElementById('errorOut');
-    let destLat = lat;
-    let destLng = lng;
-
-    if (destLat === undefined || destLng === undefined || isNaN(destLat) || isNaN(destLng)) {
-      // Address-only card - geocode the address text first
-      errorOut.textContent = 'מאתר את הכתובת על המפה…';
-      try {
-        const resp = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(shareText));
-        const results = await resp.json();
-        if (results && results.length) {
-          destLat = parseFloat(results[0].lat);
-          destLng = parseFloat(results[0].lon);
-        } else {
-          errorOut.textContent = 'לא הצלחתי לאתר את הכתובת על המפה';
-          return;
-        }
-      } catch (e) {
-        errorOut.textContent = 'שגיאה באיתור הכתובת על המפה';
-        return;
-      }
-    }
-
-    errorOut.textContent = '';
-    try {
-      await showLiveMapToDestination(destLat, destLng, label);
-      document.getElementById('mapContainer').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } catch (e) {
-      errorOut.textContent = 'שגיאה בטעינת המפה';
-    }
+  div.querySelector('.map-btn').addEventListener('click', () => {
+    showResultOnMap(label, lat, lng, shareText);
   });
 
   return div;
@@ -284,7 +288,7 @@ function processText(raw, autoOpen) {
 
   if (!raw || !raw.trim()) {
     errorOut.textContent = 'הדביקו קישור או קואורדינטות קודם';
-    return;
+    return null;
   }
 
   // Try origin+destination pair first (e.g. Wolt's route link with from/ and to/)
@@ -302,7 +306,8 @@ function processText(raw, autoOpen) {
 
     resultsBox.appendChild(renderPointCard('📍 מאיפה', fromLat + ', ' + fromLng, fromLinks, fromLat + ', ' + fromLng, parseFloat(fromLat), parseFloat(fromLng)));
     resultsBox.appendChild(renderPointCard('🏁 לאן', toLat + ', ' + toLng, toLinks, toLat + ', ' + toLng, parseFloat(toLat), parseFloat(toLng)));
-    return;
+    // The destination is the more useful point to auto-show on the map
+    return { label: '🏁 לאן', lat: parseFloat(toLat), lng: parseFloat(toLng) };
   }
 
   // Single point
@@ -312,13 +317,14 @@ function processText(raw, autoOpen) {
     const lng = result.lng;
     const links = buildLinksFromCoords(lat, lng);
     resultsBox.appendChild(renderPointCard('📍 מיקום', lat + ', ' + lng, links, lat + ', ' + lng, parseFloat(lat), parseFloat(lng)));
-    return;
+    return { label: '📍 מיקום', lat: parseFloat(lat), lng: parseFloat(lng) };
   }
 
   // Fallback: plain address text
   const address = raw.trim();
   const links = buildLinksFromAddress(address);
   resultsBox.appendChild(renderPointCard('📍 כתובת', address, links, address));
+  return { label: '📍 כתובת', address: address };
 }
 
 document.getElementById('parseBtn').addEventListener('click', async () => {
@@ -339,9 +345,12 @@ document.getElementById('parseBtn').addEventListener('click', async () => {
   processText(inputEl.value);
 });
 
-document.getElementById('manualBtn').addEventListener('click', () => {
+document.getElementById('manualBtn').addEventListener('click', async () => {
   const inputEl = document.getElementById('input');
-  processText(inputEl.value);
+  const result = processText(inputEl.value);
+  if (result) {
+    await showResultOnMap(result.label, result.lat, result.lng, result.address);
+  }
 });
 
 document.getElementById('pickImageBtn').addEventListener('click', () => {
