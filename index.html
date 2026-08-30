@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 03:50</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 04:00</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -110,11 +110,6 @@
     <button class="primary" id="myLocationBtn" style="background:#34a853">📍 המיקום שלי</button>
   </div>
 
-  <div id="zoomThresholdBox" style="display:none;max-width:420px;width:100%;margin-bottom:10px;text-align:center;font-size:14px;color:#555">
-    זום אוטומטי כשקרוב מ-
-    <input type="number" id="zoomThresholdInput" value="50" min="5" step="5" style="width:60px;text-align:center;border-radius:8px;border:1px solid #ddd;padding:4px">
-    מטר
-  </div>
   <div id="headingDebug" style="text-align:center;font-size:13px;color:#555;margin-bottom:8px">כיוון: --°</div>
   <div id="mapContainer" style="display:none;height:220px;border-radius:16px;overflow:hidden;margin-bottom:16px;max-width:420px;width:100%"></div>
   <div id="distanceDisplay" style="display:none;text-align:center;font-size:22px;font-weight:700;color:#1a8a3a;margin-bottom:16px"></div>
@@ -530,7 +525,6 @@ async function showMiniMap(lat, lng) {
   stopLiveUpdate();
   const mapContainer = document.getElementById('mapContainer');
   mapContainer.style.display = 'block';
-  document.getElementById('zoomThresholdBox').style.display = 'none';
   document.getElementById('distanceDisplay').style.display = 'none';
 
   if (!window.L) {
@@ -572,14 +566,10 @@ function formatDistance(meters) {
   return Math.round(meters) + ' מטר ליעד';
 }
 
-let hasAutoZoomed = false;
-
 async function showLiveMapToDestination(destLat, destLng, label) {
   stopLiveUpdate();
-  hasAutoZoomed = false;
   const mapContainer = document.getElementById('mapContainer');
   mapContainer.style.display = 'block';
-  document.getElementById('zoomThresholdBox').style.display = 'block';
   document.getElementById('distanceDisplay').style.display = 'block';
 
   if (!window.L) {
@@ -621,9 +611,6 @@ async function showLiveMapToDestination(destLat, destLng, label) {
           myLocationMarker = window.L.marker([lat, lng], { icon: myLocationIcon(heading) }).addTo(naviMap).bindPopup('המיקום שלי');
         }
 
-        // Auto-zoom to fit both points once we get within the configured threshold
-        const thresholdInput = document.getElementById('zoomThresholdInput');
-        const threshold = thresholdInput ? parseFloat(thresholdInput.value) || 50 : 50;
         const dist = distanceMeters(lat, lng, destLat, destLng);
 
         const distanceEl = document.getElementById('distanceDisplay');
@@ -631,21 +618,16 @@ async function showLiveMapToDestination(destLat, destLng, label) {
           distanceEl.textContent = formatDistance(dist);
         }
 
-        if (dist <= threshold) {
-          if (!hasAutoZoomed) {
-            hasAutoZoomed = true;
-            const w = mapContainer.clientWidth || 300;
-            const h = mapContainer.clientHeight || 220;
-            const padX = w * 0.05;
-            const padY = h * 0.05;
-            naviMap.fitBounds(
-              [[lat, lng], [destLat, destLng]],
-              { paddingTopLeft: [padX, padY], paddingBottomRight: [padX, padY] }
-            );
-          }
-        } else {
-          hasAutoZoomed = false; // allow re-triggering if the driver moves away and back
-        }
+        // Always keep both points framed in view, tightening the zoom as the
+        // distance shrinks - down to meter-level resolution near the destination.
+        const w = mapContainer.clientWidth || 300;
+        const h = mapContainer.clientHeight || 220;
+        const padX = w * 0.05;
+        const padY = h * 0.05;
+        naviMap.fitBounds(
+          [[lat, lng], [destLat, destLng]],
+          { paddingTopLeft: [padX, padY], paddingBottomRight: [padX, padY], maxZoom: 19 }
+        );
       },
       () => { /* keep showing last known position if this update fails */ },
       { enableHighAccuracy: true, timeout: 8000 }
