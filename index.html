@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 03:25</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 03:40</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -444,12 +444,16 @@ function stopLiveUpdate() {
 let compassHeading = null;
 let compassListenerAdded = false;
 
+// Extra calibration flip on top of the compass -180 correction already applied upstream.
+const ARROW_ROTATION_OFFSET = 180;
+
 function myLocationIcon(heading) {
   if (typeof heading === 'number' && !isNaN(heading)) {
+    const displayHeading = ((heading + ARROW_ROTATION_OFFSET) % 360 + 360) % 360;
     return window.L.divIcon({
       className: '',
       html: '<div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;' +
-        'border-bottom:15px solid #4285F4;transform:rotate(' + heading + 'deg);transform-origin:50% 85%;' +
+        'border-bottom:15px solid #4285F4;transform:rotate(' + displayHeading + 'deg);transform-origin:50% 85%;' +
         'filter:drop-shadow(0 0 2px white)"></div>',
       iconSize: [20, 20],
       iconAnchor: [10, 12]
@@ -494,7 +498,8 @@ async function setupCompassListener() {
 
       const debugEl = document.getElementById('headingDebug');
       if (debugEl) {
-        debugEl.textContent = 'כיוון גולמי: ' + Math.round(rawHeading) + '° · מתוקן (-180°): ' + Math.round(adjusted) + '°';
+        const displayed = ((adjusted + 180) % 360 + 360) % 360;
+        debugEl.textContent = 'גולמי: ' + Math.round(rawHeading) + '° · חץ בפועל: ' + Math.round(displayed) + '°';
       }
 
       if (myLocationMarker && naviMap) {
