@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 04:30</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 04:45</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -363,7 +363,7 @@ document.getElementById('cameraBtn').addEventListener('click', () => {
   document.getElementById('cameraInput').click();
 });
 
-document.getElementById('micBtn').addEventListener('click', () => {
+function startVoiceRecognition() {
   const errorOut = document.getElementById('errorOut');
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -402,7 +402,16 @@ document.getElementById('micBtn').addEventListener('click', () => {
   } catch (e) {
     errorOut.textContent = 'לא ניתן להפעיל זיהוי קולי כרגע';
   }
-});
+}
+
+document.getElementById('micBtn').addEventListener('click', startVoiceRecognition);
+
+// Launched from the "הקלטה קולית" home-screen shortcut - jump straight into voice mode
+if (new URLSearchParams(window.location.search).get('action') === 'voice') {
+  window.addEventListener('load', () => {
+    setTimeout(startVoiceRecognition, 300);
+  });
+}
 
 document.getElementById('fileInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
