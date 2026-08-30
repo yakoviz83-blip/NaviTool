@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 02:28</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 02:45</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -226,6 +226,7 @@ function renderPointCard(label, coordsText, links, shareText, lat, lng) {
     '<a class="waze" href="' + links.waze + '">Waze</a>' +
     '<a class="gmaps" href="' + links.gmaps + '">Google Maps</a>' +
     '<a class="amaps" href="' + links.amaps + '">Apple Maps</a>' +
+    '<button class="primary map-btn" style="background:#673ab7">🗺️ הצג במפה (עדכון חי)</button>' +
     '<button class="primary share-btn" style="background:#555">שתף מיקום</button>';
 
   div.querySelector('.share-btn').addEventListener('click', async () => {
@@ -233,6 +234,39 @@ function renderPointCard(label, coordsText, links, shareText, lat, lng) {
       try { await navigator.share({ title: label, text: shareText, url: links.gmaps }); } catch (e) { /* cancelled */ }
     } else {
       document.getElementById('errorOut').textContent = 'שיתוף לא נתמך בדפדפן הזה';
+    }
+  });
+
+  div.querySelector('.map-btn').addEventListener('click', async () => {
+    const errorOut = document.getElementById('errorOut');
+    let destLat = lat;
+    let destLng = lng;
+
+    if (destLat === undefined || destLng === undefined || isNaN(destLat) || isNaN(destLng)) {
+      // Address-only card - geocode the address text first
+      errorOut.textContent = 'מאתר את הכתובת על המפה…';
+      try {
+        const resp = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(shareText));
+        const results = await resp.json();
+        if (results && results.length) {
+          destLat = parseFloat(results[0].lat);
+          destLng = parseFloat(results[0].lon);
+        } else {
+          errorOut.textContent = 'לא הצלחתי לאתר את הכתובת על המפה';
+          return;
+        }
+      } catch (e) {
+        errorOut.textContent = 'שגיאה באיתור הכתובת על המפה';
+        return;
+      }
+    }
+
+    errorOut.textContent = '';
+    try {
+      await showLiveMapToDestination(destLat, destLng, label);
+      document.getElementById('mapContainer').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (e) {
+      errorOut.textContent = 'שגיאה בטעינת המפה';
     }
   });
 
@@ -390,8 +424,38 @@ function loadStylesheet(href) {
 }
 
 let naviMap = null;
+let myLocationMarker = null;
+let destMarker = null;
+let liveUpdateInterval = null;
 
+function stopLiveUpdate() {
+  if (liveUpdateInterval) {
+    clearInterval(liveUpdateInterval);
+    liveUpdateInterval = null;
+  }
+}
+
+function myLocationIcon() {
+  return window.L.divIcon({
+    className: '',
+    html: '<div style="width:14px;height:14px;background:#4285F4;border:2px solid white;border-radius:50%;box-shadow:0 0 4px rgba(0,0,0,0.5)"></div>',
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+}
+
+function destinationIcon() {
+  return window.L.divIcon({
+    className: '',
+    html: '<div style="font-size:26px;line-height:26px">🏁</div>',
+    iconSize: [26, 26],
+    iconAnchor: [13, 26]
+  });
+}
+
+// Just show my current location, no destination (used by the "המיקום שלי" button)
 async function showMiniMap(lat, lng) {
+  stopLiveUpdate();
   const mapContainer = document.getElementById('mapContainer');
   mapContainer.style.display = 'block';
 
@@ -402,13 +466,62 @@ async function showMiniMap(lat, lng) {
 
   if (naviMap) {
     naviMap.remove();
+    naviMap = null;
+    myLocationMarker = null;
+    destMarker = null;
   }
 
   naviMap = window.L.map('mapContainer').setView([lat, lng], 16);
   window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(naviMap);
-  window.L.marker([lat, lng]).addTo(naviMap);
+  myLocationMarker = window.L.marker([lat, lng], { icon: myLocationIcon() }).addTo(naviMap).bindPopup('המיקום שלי');
+}
+
+// Show a destination pin + my live location, refreshed every 5 seconds
+async function showLiveMapToDestination(destLat, destLng, label) {
+  stopLiveUpdate();
+  const mapContainer = document.getElementById('mapContainer');
+  mapContainer.style.display = 'block';
+
+  if (!window.L) {
+    await loadStylesheet('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+    await loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
+  }
+
+  if (naviMap) {
+    naviMap.remove();
+    naviMap = null;
+    myLocationMarker = null;
+    destMarker = null;
+  }
+
+  naviMap = window.L.map('mapContainer').setView([destLat, destLng], 15);
+  window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(naviMap);
+
+  destMarker = window.L.marker([destLat, destLng], { icon: destinationIcon() }).addTo(naviMap).bindPopup(label || 'יעד');
+
+  function updateMyLocation() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (myLocationMarker) {
+          myLocationMarker.setLatLng([lat, lng]);
+        } else {
+          myLocationMarker = window.L.marker([lat, lng], { icon: myLocationIcon() }).addTo(naviMap).bindPopup('המיקום שלי');
+        }
+      },
+      () => { /* keep showing last known position if this update fails */ },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }
+
+  updateMyLocation();
+  liveUpdateInterval = setInterval(updateMyLocation, 5000);
 }
 
 document.getElementById('myLocationBtn').addEventListener('click', () => {
