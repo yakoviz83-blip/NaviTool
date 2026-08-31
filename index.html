@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 05:30</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 05:40</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -287,6 +287,17 @@ function renderPointCard(label, coordsText, links, shareText, lat, lng) {
   return div;
 }
 
+// Removes common Hebrew filler words that carry no location info and can
+// confuse address parsing/geocoding (e.g. "רחוב", "הרחוב", "כתובת:").
+function stripAddressNoiseWords(text) {
+  const noiseWords = ['ברחוב', 'הרחוב', 'רחוב', "רח'", 'רח׳', 'כתובת:', 'כתובת', 'מיקום:', 'מיקום'];
+  let cleaned = text;
+  noiseWords.forEach((w) => {
+    cleaned = cleaned.split(w).join(' ');
+  });
+  return cleaned.replace(/\s+/g, ' ').trim();
+}
+
 function processText(raw, autoOpen) {
   const errorOut = document.getElementById('errorOut');
   const resultsBox = document.getElementById('resultsBox');
@@ -296,6 +307,12 @@ function processText(raw, autoOpen) {
 
   if (!raw || !raw.trim()) {
     errorOut.textContent = 'הדביקו קישור או קואורדינטות קודם';
+    return null;
+  }
+
+  raw = stripAddressNoiseWords(raw);
+  if (!raw) {
+    errorOut.textContent = 'לא נשאר תוכן לעיבוד אחרי הניקוי';
     return null;
   }
 
