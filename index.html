@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 05:00</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 05:15</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -112,7 +112,12 @@
     <button class="primary" id="myLocationBtn" style="background:#34a853">📍 המיקום שלי</button>
   </div>
 
-  <div id="headingDebug" style="text-align:center;font-size:13px;color:#555;margin-bottom:8px">כיוון: --°</div>
+  <div id="headingDebug" style="text-align:center;font-size:13px;color:#555;margin-bottom:4px">כיוון: --°</div>
+  <div style="display:flex;justify-content:center;gap:8px;margin-bottom:12px">
+    <button id="calibMinus" style="width:44px;height:36px;border:none;border-radius:8px;background:#eee;font-size:16px">-10°</button>
+    <button id="calibReset" style="padding:0 12px;height:36px;border:none;border-radius:8px;background:#eee;font-size:13px">איפוס</button>
+    <button id="calibPlus" style="width:44px;height:36px;border:none;border-radius:8px;background:#eee;font-size:16px">+10°</button>
+  </div>
   <div id="mapContainer" style="display:none;height:220px;border-radius:16px;overflow:hidden;margin-bottom:16px;max-width:420px;width:100%"></div>
   <div id="distanceDisplay" style="display:none;text-align:center;font-size:22px;font-weight:700;color:#1a8a3a;margin-bottom:16px"></div>
 
@@ -438,6 +443,28 @@ document.getElementById('cameraInput').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
+function applyCalibrationChange(delta) {
+  userCalibrationOffset = ((userCalibrationOffset + delta) % 360 + 360) % 360;
+  localStorage.setItem('navi_heading_calibration', String(userCalibrationOffset));
+  if (myLocationMarker && naviMap) {
+    myLocationMarker.setIcon(myLocationIcon(currentHeading()));
+  }
+  const debugEl = document.getElementById('headingDebug');
+  if (debugEl && debugEl.textContent.indexOf('כיול') !== -1) {
+    debugEl.textContent = debugEl.textContent.replace(/כיול: -?\d+°/, 'כיול: ' + userCalibrationOffset + '°');
+  }
+}
+
+document.getElementById('calibMinus').addEventListener('click', () => applyCalibrationChange(-10));
+document.getElementById('calibPlus').addEventListener('click', () => applyCalibrationChange(10));
+document.getElementById('calibReset').addEventListener('click', () => {
+  userCalibrationOffset = 0;
+  localStorage.setItem('navi_heading_calibration', '0');
+  if (myLocationMarker && naviMap) {
+    myLocationMarker.setIcon(myLocationIcon(currentHeading()));
+  }
+});
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
@@ -478,13 +505,15 @@ function stopLiveUpdate() {
 let compassHeading = null;
 let compassListenerAdded = false;
 
-// Calibration offset applied on top of the compass -180 correction from
-// setupCompassListener. Kept at 0 (the setting that measured correctly).
+// Fixed correction applied upstream (compass -180) plus a live, user-adjustable
+// calibration offset the driver can tune with the +10°/-10° buttons, persisted
+// across sessions since sensor behavior varies by device/session.
 const ARROW_ROTATION_OFFSET = 0;
+let userCalibrationOffset = parseFloat(localStorage.getItem('navi_heading_calibration') || '0') || 0;
 
 function myLocationIcon(heading) {
   if (typeof heading === 'number' && !isNaN(heading)) {
-    const displayHeading = ((heading + ARROW_ROTATION_OFFSET) % 360 + 360) % 360;
+    const displayHeading = ((heading + ARROW_ROTATION_OFFSET + userCalibrationOffset) % 360 + 360) % 360;
     return window.L.divIcon({
       className: '',
       html: '<div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;' +
@@ -533,8 +562,8 @@ async function setupCompassListener() {
 
       const debugEl = document.getElementById('headingDebug');
       if (debugEl) {
-        const displayed = ((adjusted + ARROW_ROTATION_OFFSET) % 360 + 360) % 360;
-        debugEl.textContent = 'גולמי: ' + Math.round(rawHeading) + '° · חץ בפועל: ' + Math.round(displayed) + '°';
+        const displayed = ((adjusted + ARROW_ROTATION_OFFSET + userCalibrationOffset) % 360 + 360) % 360;
+        debugEl.textContent = 'גולמי: ' + Math.round(rawHeading) + '° · חץ בפועל: ' + Math.round(displayed) + '° · כיול: ' + userCalibrationOffset + '°';
       }
 
       if (myLocationMarker && naviMap) {
