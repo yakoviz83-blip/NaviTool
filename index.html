@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 05:15</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 05:30</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -120,6 +120,7 @@
   </div>
   <div id="mapContainer" style="display:none;height:220px;border-radius:16px;overflow:hidden;margin-bottom:16px;max-width:420px;width:100%"></div>
   <div id="distanceDisplay" style="display:none;text-align:center;font-size:22px;font-weight:700;color:#1a8a3a;margin-bottom:16px"></div>
+  <button id="autoZoomToggle" style="display:none;width:100%;max-width:420px;height:44px;margin-bottom:16px;border:none;border-radius:10px;font-size:15px;font-weight:600;background:#34a853;color:#fff">זום אוטומטי: פעיל 🔍</button>
 
   <div class="error" id="errorOut"></div>
 
@@ -465,6 +466,27 @@ document.getElementById('calibReset').addEventListener('click', () => {
   }
 });
 
+let autoZoomEnabled = (localStorage.getItem('navi_auto_zoom') !== 'off');
+
+function updateAutoZoomButton() {
+  const btn = document.getElementById('autoZoomToggle');
+  if (autoZoomEnabled) {
+    btn.textContent = 'זום אוטומטי: פעיל 🔍';
+    btn.style.background = '#34a853';
+  } else {
+    btn.textContent = 'זום אוטומטי: כבוי 🔒';
+    btn.style.background = '#999';
+  }
+}
+
+document.getElementById('autoZoomToggle').addEventListener('click', () => {
+  autoZoomEnabled = !autoZoomEnabled;
+  localStorage.setItem('navi_auto_zoom', autoZoomEnabled ? 'on' : 'off');
+  updateAutoZoomButton();
+});
+
+updateAutoZoomButton();
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
@@ -594,6 +616,7 @@ async function showMiniMap(lat, lng) {
   const mapContainer = document.getElementById('mapContainer');
   mapContainer.style.display = 'block';
   document.getElementById('distanceDisplay').style.display = 'none';
+  document.getElementById('autoZoomToggle').style.display = 'none';
 
   if (!window.L) {
     await loadStylesheet('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
@@ -639,6 +662,7 @@ async function showLiveMapToDestination(destLat, destLng, label) {
   const mapContainer = document.getElementById('mapContainer');
   mapContainer.style.display = 'block';
   document.getElementById('distanceDisplay').style.display = 'block';
+  document.getElementById('autoZoomToggle').style.display = 'block';
 
   if (!window.L) {
     await loadStylesheet('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
@@ -686,16 +710,18 @@ async function showLiveMapToDestination(destLat, destLng, label) {
           distanceEl.textContent = formatDistance(dist);
         }
 
-        // Always keep both points framed in view, tightening the zoom as the
-        // distance shrinks - down to meter-level resolution near the destination.
-        const w = mapContainer.clientWidth || 300;
-        const h = mapContainer.clientHeight || 220;
-        const padX = w * 0.05;
-        const padY = h * 0.05;
-        naviMap.fitBounds(
-          [[lat, lng], [destLat, destLng]],
-          { paddingTopLeft: [padX, padY], paddingBottomRight: [padX, padY], maxZoom: 19 }
-        );
+        // Always keep both points framed in view (unless the driver turned this off
+        // to pan/zoom freely), tightening the zoom as the distance shrinks.
+        if (autoZoomEnabled) {
+          const w = mapContainer.clientWidth || 300;
+          const h = mapContainer.clientHeight || 220;
+          const padX = w * 0.05;
+          const padY = h * 0.05;
+          naviMap.fitBounds(
+            [[lat, lng], [destLat, destLng]],
+            { paddingTopLeft: [padX, padY], paddingBottomRight: [padX, padY], maxZoom: 19 }
+          );
+        }
       },
       () => { /* keep showing last known position if this update fails */ },
       { enableHighAccuracy: true, timeout: 8000 }
