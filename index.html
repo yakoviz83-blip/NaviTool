@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 06:25</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 06:45</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -130,7 +130,12 @@
     <div style="color:#fff;font-size:13px;text-align:center;margin-bottom:6px;flex-shrink:0">גררו מלבן סביב האזור שרוצים לקרוא (למשל השם והכתובת ליד הסיכה)</div>
     <div id="cropWrapper" style="position:relative;touch-action:none;line-height:0;display:flex;align-items:center;justify-content:center;width:100%;flex-shrink:0">
       <img id="cropImage" style="max-width:100%;max-height:55vh;width:auto;height:auto;display:block;user-select:none;-webkit-user-drag:none;object-fit:contain">
-      <div id="cropRect" style="position:absolute;border:2px solid #ff3b30;background:rgba(255,59,48,0.2);display:none;pointer-events:none"></div>
+      <div id="cropBox" style="position:absolute;border:2px solid #ff3b30;background:rgba(255,59,48,0.15);display:none;touch-action:none;box-sizing:border-box">
+        <div class="crop-handle" data-corner="tl" style="position:absolute;left:-16px;top:-16px;width:32px;height:32px;background:#ff3b30;border:3px solid #fff;border-radius:50%;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>
+        <div class="crop-handle" data-corner="tr" style="position:absolute;right:-16px;top:-16px;width:32px;height:32px;background:#ff3b30;border:3px solid #fff;border-radius:50%;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>
+        <div class="crop-handle" data-corner="bl" style="position:absolute;left:-16px;bottom:-16px;width:32px;height:32px;background:#ff3b30;border:3px solid #fff;border-radius:50%;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>
+        <div class="crop-handle" data-corner="br" style="position:absolute;right:-16px;bottom:-16px;width:32px;height:32px;background:#ff3b30;border:3px solid #fff;border-radius:50%;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>
+      </div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;width:100%;max-width:420px;margin-top:10px;flex-shrink:0">
       <button id="cropConfirmBtn" style="height:44px;border:none;border-radius:10px;background:#ff3b30;color:#fff;font-size:15px;font-weight:600">עבד את האזור המסומן</button>
@@ -453,17 +458,19 @@ if (new URLSearchParams(window.location.search).get('action') === 'voice') {
 }
 
 let cropCurrentFile = null;
-let cropDragging = false;
-let cropStartX = 0;
-let cropStartY = 0;
+let cropBoxState = { x: 0, y: 0, w: 0, h: 0 };
+let cropInteraction = null; // { mode: 'move'|'resize', corner, startX, startY, startBox }
 
 function openCropOverlay(file) {
   cropCurrentFile = file;
   const img = document.getElementById('cropImage');
-  const rect = document.getElementById('cropRect');
-  rect.style.display = 'none';
+  const box = document.getElementById('cropBox');
+  box.style.display = 'none';
   const url = URL.createObjectURL(file);
-  img.onload = () => { URL.revokeObjectURL(url); };
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    initDefaultCropBox();
+  };
   img.src = url;
   document.getElementById('cropOverlay').style.display = 'flex';
 }
@@ -473,57 +480,115 @@ function closeCropOverlay() {
   cropCurrentFile = null;
 }
 
-function setupCropDragHandlers() {
+function initDefaultCropBox() {
   const wrapper = document.getElementById('cropWrapper');
-  const rectEl = document.getElementById('cropRect');
+  const img = document.getElementById('cropImage');
+  const wrapperRect = wrapper.getBoundingClientRect();
+  const imgRect = img.getBoundingClientRect();
 
-  function getPoint(evt) {
+  // Image's position relative to the wrapper (accounts for centering/letterboxing)
+  const imgLeft = imgRect.left - wrapperRect.left;
+  const imgTop = imgRect.top - wrapperRect.top;
+
+  // Default selection: centered box covering 70% width x 25% height of the image
+  const w = imgRect.width * 0.7;
+  const h = imgRect.height * 0.25;
+  const x = imgLeft + (imgRect.width - w) / 2;
+  const y = imgTop + (imgRect.height - h) / 2;
+
+  cropBoxState = { x, y, w, h };
+  renderCropBox();
+  document.getElementById('cropBox').style.display = 'block';
+}
+
+function renderCropBox() {
+  const box = document.getElementById('cropBox');
+  box.style.left = cropBoxState.x + 'px';
+  box.style.top = cropBoxState.y + 'px';
+  box.style.width = cropBoxState.w + 'px';
+  box.style.height = cropBoxState.h + 'px';
+}
+
+function setupCropBoxHandlers() {
+  const wrapper = document.getElementById('cropWrapper');
+  const box = document.getElementById('cropBox');
+  const MIN_SIZE = 30;
+
+  function clientToWrapper(evt) {
     const bounds = wrapper.getBoundingClientRect();
     return { x: evt.clientX - bounds.left, y: evt.clientY - bounds.top };
   }
 
-  wrapper.addEventListener('pointerdown', (evt) => {
-    cropDragging = true;
-    const p = getPoint(evt);
-    cropStartX = p.x;
-    cropStartY = p.y;
-    rectEl.style.left = p.x + 'px';
-    rectEl.style.top = p.y + 'px';
-    rectEl.style.width = '0px';
-    rectEl.style.height = '0px';
-    rectEl.style.display = 'block';
-    wrapper.setPointerCapture(evt.pointerId);
+  // Drag the box body (from the middle) to move it
+  box.addEventListener('pointerdown', (evt) => {
+    if (evt.target.classList.contains('crop-handle')) return; // handles manage their own drag
+    evt.stopPropagation();
+    const p = clientToWrapper(evt);
+    cropInteraction = { mode: 'move', startX: p.x, startY: p.y, startBox: { ...cropBoxState } };
+    box.setPointerCapture(evt.pointerId);
+  });
+
+  // Resize from each corner handle
+  document.querySelectorAll('.crop-handle').forEach((handle) => {
+    handle.addEventListener('pointerdown', (evt) => {
+      evt.stopPropagation();
+      const p = clientToWrapper(evt);
+      cropInteraction = {
+        mode: 'resize',
+        corner: handle.dataset.corner,
+        startX: p.x,
+        startY: p.y,
+        startBox: { ...cropBoxState }
+      };
+      handle.setPointerCapture(evt.pointerId);
+    });
   });
 
   wrapper.addEventListener('pointermove', (evt) => {
-    if (!cropDragging) return;
-    const p = getPoint(evt);
-    const x = Math.min(p.x, cropStartX);
-    const y = Math.min(p.y, cropStartY);
-    const w = Math.abs(p.x - cropStartX);
-    const h = Math.abs(p.y - cropStartY);
-    rectEl.style.left = x + 'px';
-    rectEl.style.top = y + 'px';
-    rectEl.style.width = w + 'px';
-    rectEl.style.height = h + 'px';
+    if (!cropInteraction) return;
+    const p = clientToWrapper(evt);
+    const dx = p.x - cropInteraction.startX;
+    const dy = p.y - cropInteraction.startY;
+    const start = cropInteraction.startBox;
+
+    if (cropInteraction.mode === 'move') {
+      cropBoxState.x = start.x + dx;
+      cropBoxState.y = start.y + dy;
+    } else {
+      let { x, y, w, h } = start;
+      if (cropInteraction.corner === 'tl') { x = start.x + dx; y = start.y + dy; w = start.w - dx; h = start.h - dy; }
+      if (cropInteraction.corner === 'tr') { y = start.y + dy; w = start.w + dx; h = start.h - dy; }
+      if (cropInteraction.corner === 'bl') { x = start.x + dx; w = start.w - dx; h = start.h + dy; }
+      if (cropInteraction.corner === 'br') { w = start.w + dx; h = start.h + dy; }
+
+      if (w >= MIN_SIZE) { cropBoxState.x = x; cropBoxState.w = w; }
+      if (h >= MIN_SIZE) { cropBoxState.y = y; cropBoxState.h = h; }
+    }
+
+    renderCropBox();
   });
 
-  wrapper.addEventListener('pointerup', () => { cropDragging = false; });
-  wrapper.addEventListener('pointercancel', () => { cropDragging = false; });
+  wrapper.addEventListener('pointerup', () => { cropInteraction = null; });
+  wrapper.addEventListener('pointercancel', () => { cropInteraction = null; });
 }
 
-setupCropDragHandlers();
+setupCropBoxHandlers();
 
-async function cropToBlob(imgEl, rectEl) {
-  const displayedRect = rectEl.getBoundingClientRect();
+async function cropToBlob(imgEl, boxState) {
+  const wrapper = document.getElementById('cropWrapper');
+  const wrapperRect = wrapper.getBoundingClientRect();
   const imgRect = imgEl.getBoundingClientRect();
+
+  const imgLeft = imgRect.left - wrapperRect.left;
+  const imgTop = imgRect.top - wrapperRect.top;
+
   const scaleX = imgEl.naturalWidth / imgRect.width;
   const scaleY = imgEl.naturalHeight / imgRect.height;
 
-  const sx = (displayedRect.left - imgRect.left) * scaleX;
-  const sy = (displayedRect.top - imgRect.top) * scaleY;
-  const sw = displayedRect.width * scaleX;
-  const sh = displayedRect.height * scaleY;
+  const sx = (boxState.x - imgLeft) * scaleX;
+  const sy = (boxState.y - imgTop) * scaleY;
+  const sw = boxState.w * scaleX;
+  const sh = boxState.h * scaleY;
 
   const canvas = document.createElement('canvas');
   canvas.width = sw;
@@ -534,15 +599,15 @@ async function cropToBlob(imgEl, rectEl) {
 }
 
 document.getElementById('cropConfirmBtn').addEventListener('click', async () => {
-  const rectEl = document.getElementById('cropRect');
   const imgEl = document.getElementById('cropImage');
+  const box = document.getElementById('cropBox');
 
-  if (rectEl.style.display === 'none' || parseFloat(rectEl.style.width) < 10) {
+  if (box.style.display === 'none' || cropBoxState.w < 10 || cropBoxState.h < 10) {
     document.getElementById('errorOut').textContent = 'סמנו קודם מלבן על התמונה';
     return;
   }
 
-  const blob = await cropToBlob(imgEl, rectEl);
+  const blob = await cropToBlob(imgEl, cropBoxState);
   closeCropOverlay();
   try {
     await runOcrOnImage(blob);
