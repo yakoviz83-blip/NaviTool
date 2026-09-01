@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 07:00</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 07:30</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -126,15 +126,20 @@
 
   <div id="resultsBox"></div>
 
-  <div id="cropOverlay" style="display:none;position:fixed;top:0;left:0;right:0;height:100vh;height:100dvh;background:#000;z-index:1000;flex-direction:column;align-items:center;justify-content:flex-start;padding:10px;overflow-y:auto;box-sizing:border-box">
+  <div id="cropOverlay" style="display:none;position:fixed;top:0;left:0;right:0;height:100vh;height:100dvh;background:#000;z-index:1000;flex-direction:column;align-items:center;justify-content:flex-start;padding:10px;overflow-y:hidden;box-sizing:border-box">
     <div style="display:flex;flex-direction:row;gap:8px;width:100%;max-width:420px;margin-bottom:8px;flex-shrink:0">
       <button id="cropConfirmBtn" style="flex:2;height:44px;border:none;border-radius:10px;background:#ff3b30;color:#fff;font-size:14px;font-weight:600">עבד אזור מסומן</button>
       <button id="cropFullBtn" style="flex:1;height:44px;border:none;border-radius:10px;background:#555;color:#fff;font-size:13px">כל התמונה</button>
       <button id="cropCancelBtn" style="flex:1;height:44px;border:none;border-radius:10px;background:#333;color:#fff;font-size:13px">ביטול</button>
     </div>
-    <div style="color:#fff;font-size:13px;text-align:center;margin-bottom:6px;flex-shrink:0">גררו מלבן סביב האזור שרוצים לקרוא (למשל השם והכתובת ליד הסיכה)</div>
-    <div id="cropWrapper" style="position:relative;touch-action:none;line-height:0;display:flex;align-items:center;justify-content:center;width:100%;flex-shrink:0">
-      <img id="cropImage" style="max-width:100%;max-height:65vh;width:auto;height:auto;display:block;user-select:none;-webkit-user-drag:none;object-fit:contain">
+    <div style="display:flex;flex-direction:row;gap:8px;width:100%;max-width:420px;margin-bottom:6px;flex-shrink:0">
+      <button id="cropZoomOut" style="flex:1;height:38px;border:none;border-radius:8px;background:#444;color:#fff;font-size:16px">－ הקטן</button>
+      <button id="cropZoomReset" style="flex:1;height:38px;border:none;border-radius:8px;background:#444;color:#fff;font-size:13px">איפוס זום</button>
+      <button id="cropZoomIn" style="flex:1;height:38px;border:none;border-radius:8px;background:#444;color:#fff;font-size:16px">＋ הגדל</button>
+    </div>
+    <div style="color:#fff;font-size:13px;text-align:center;margin-bottom:6px;flex-shrink:0">גררו מלבן סביב האזור שרוצים לקרוא. אפשר לגלול בתוך התמונה כשמזמזמים</div>
+    <div id="cropWrapper" style="position:relative;touch-action:pan-x pan-y;overflow:auto;width:100%;flex:1;min-height:0;background:#111">
+      <img id="cropImage" style="display:block;user-select:none;-webkit-user-drag:none">
       <div id="cropBox" style="position:absolute;border:2px solid #ff3b30;background:rgba(255,59,48,0.15);display:none;touch-action:none;box-sizing:border-box">
         <div class="crop-handle" data-corner="tl" style="position:absolute;left:-16px;top:-16px;width:32px;height:32px;background:#ff3b30;border:3px solid #fff;border-radius:50%;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>
         <div class="crop-handle" data-corner="tr" style="position:absolute;right:-16px;top:-16px;width:32px;height:32px;background:#ff3b30;border:3px solid #fff;border-radius:50%;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>
@@ -145,6 +150,7 @@
   </div>
 
   <div class="hint">הוסיפו את הדף הזה למסך הבית לגישה מהירה</div>
+
 
 <script>
 function base64UrlToJson(str) {
@@ -474,18 +480,74 @@ if (new URLSearchParams(window.location.search).get('action') === 'voice') {
 }
 
 let cropCurrentFile = null;
-let cropBoxState = { x: 0, y: 0, w: 0, h: 0 };
+let cropBoxState = { x: 0, y: 0, w: 0, h: 0 }; // transient pixel state while dragging/rendering
 let cropInteraction = null; // { mode: 'move'|'resize', corner, startX, startY, startBox }
+let cropZoom = 1;
+const CROP_ZOOM_MIN = 0.5;
+const CROP_ZOOM_MAX = 4;
+const CROP_ZOOM_STEP = 0.25;
+
+function loadSavedCropFraction() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('navi_crop_box') || 'null');
+    if (saved && typeof saved.fx === 'number') return saved;
+  } catch (e) { /* ignore corrupt data */ }
+  return { fx: 0.15, fy: 0.375, fw: 0.7, fh: 0.25 }; // default: centered 70%x25%
+}
+
+let cropBoxFraction = loadSavedCropFraction();
+
+function saveCropFraction() {
+  localStorage.setItem('navi_crop_box', JSON.stringify(cropBoxFraction));
+}
+
+// The image's rendered box in the WRAPPER'S CONTENT coordinate space (i.e.
+// unaffected by current scroll position) - this is the space CSS absolute
+// left/top values live in for a child of a scrollable relative container.
+function imgContentRect() {
+  const wrapper = document.getElementById('cropWrapper');
+  const img = document.getElementById('cropImage');
+  const wrapperRect = wrapper.getBoundingClientRect();
+  const imgRect = img.getBoundingClientRect();
+  return {
+    left: imgRect.left - wrapperRect.left + wrapper.scrollLeft,
+    top: imgRect.top - wrapperRect.top + wrapper.scrollTop,
+    width: imgRect.width,
+    height: imgRect.height
+  };
+}
+
+function fractionToPixels(frac, rect) {
+  return {
+    x: rect.left + frac.fx * rect.width,
+    y: rect.top + frac.fy * rect.height,
+    w: frac.fw * rect.width,
+    h: frac.fh * rect.height
+  };
+}
+
+function pixelsToFraction(px, rect) {
+  return {
+    fx: (px.x - rect.left) / rect.width,
+    fy: (px.y - rect.top) / rect.height,
+    fw: px.w / rect.width,
+    fh: px.h / rect.height
+  };
+}
 
 function openCropOverlay(file) {
   cropCurrentFile = file;
+  cropZoom = 1;
   const img = document.getElementById('cropImage');
   const box = document.getElementById('cropBox');
   box.style.display = 'none';
   const url = URL.createObjectURL(file);
   img.onload = () => {
     URL.revokeObjectURL(url);
-    initDefaultCropBox();
+    fitImageToWrapper();
+    cropBoxState = fractionToPixels(cropBoxFraction, imgContentRect());
+    renderCropBox();
+    box.style.display = 'block';
   };
   img.src = url;
   document.getElementById('cropOverlay').style.display = 'flex';
@@ -496,26 +558,47 @@ function closeCropOverlay() {
   cropCurrentFile = null;
 }
 
-function initDefaultCropBox() {
+// Sets the image's base (zoom=1) width so it fits fully within the wrapper -
+// full image visible, no clipping - then applies the current zoom on top.
+function fitImageToWrapper() {
   const wrapper = document.getElementById('cropWrapper');
   const img = document.getElementById('cropImage');
-  const wrapperRect = wrapper.getBoundingClientRect();
-  const imgRect = img.getBoundingClientRect();
-
-  // Image's position relative to the wrapper (accounts for centering/letterboxing)
-  const imgLeft = imgRect.left - wrapperRect.left;
-  const imgTop = imgRect.top - wrapperRect.top;
-
-  // Default selection: centered box covering 70% width x 25% height of the image
-  const w = imgRect.width * 0.7;
-  const h = imgRect.height * 0.25;
-  const x = imgLeft + (imgRect.width - w) / 2;
-  const y = imgTop + (imgRect.height - h) / 2;
-
-  cropBoxState = { x, y, w, h };
-  renderCropBox();
-  document.getElementById('cropBox').style.display = 'block';
+  const availW = wrapper.clientWidth;
+  const availH = wrapper.clientHeight;
+  const naturalRatio = img.naturalWidth / img.naturalHeight;
+  let fitW = availW;
+  let fitH = fitW / naturalRatio;
+  if (fitH > availH) {
+    fitH = availH;
+    fitW = fitH * naturalRatio;
+  }
+  img.dataset.fitWidth = fitW;
+  applyCropZoom();
 }
+
+function applyCropZoom() {
+  const img = document.getElementById('cropImage');
+  const fitWidth = parseFloat(img.dataset.fitWidth) || img.naturalWidth;
+  img.style.width = (fitWidth * cropZoom) + 'px';
+  img.style.height = 'auto';
+}
+
+function setCropZoom(newZoom) {
+  const rect = imgContentRect();
+  // Keep the box anchored to the same part of the image content when zoom changes
+  cropBoxFraction = pixelsToFraction(cropBoxState, rect);
+
+  cropZoom = Math.min(CROP_ZOOM_MAX, Math.max(CROP_ZOOM_MIN, newZoom));
+  applyCropZoom();
+
+  const newRect = imgContentRect();
+  cropBoxState = fractionToPixels(cropBoxFraction, newRect);
+  renderCropBox();
+}
+
+document.getElementById('cropZoomIn').addEventListener('click', () => setCropZoom(cropZoom + CROP_ZOOM_STEP));
+document.getElementById('cropZoomOut').addEventListener('click', () => setCropZoom(cropZoom - CROP_ZOOM_STEP));
+document.getElementById('cropZoomReset').addEventListener('click', () => setCropZoom(1));
 
 function renderCropBox() {
   const box = document.getElementById('cropBox');
@@ -530,21 +613,25 @@ function setupCropBoxHandlers() {
   const box = document.getElementById('cropBox');
   const MIN_SIZE = 30;
 
+  // Converts a pointer event to the wrapper's CONTENT coordinate space
+  // (viewport position + current scroll offset), matching what CSS absolute
+  // left/top values mean for a child of this scrollable container.
   function clientToWrapper(evt) {
     const bounds = wrapper.getBoundingClientRect();
-    return { x: evt.clientX - bounds.left, y: evt.clientY - bounds.top };
+    return {
+      x: evt.clientX - bounds.left + wrapper.scrollLeft,
+      y: evt.clientY - bounds.top + wrapper.scrollTop
+    };
   }
 
-  // Drag the box body (from the middle) to move it
   box.addEventListener('pointerdown', (evt) => {
-    if (evt.target.classList.contains('crop-handle')) return; // handles manage their own drag
+    if (evt.target.classList.contains('crop-handle')) return;
     evt.stopPropagation();
     const p = clientToWrapper(evt);
     cropInteraction = { mode: 'move', startX: p.x, startY: p.y, startBox: { ...cropBoxState } };
     box.setPointerCapture(evt.pointerId);
   });
 
-  // Resize from each corner handle
   document.querySelectorAll('.crop-handle').forEach((handle) => {
     handle.addEventListener('pointerdown', (evt) => {
       evt.stopPropagation();
@@ -584,25 +671,27 @@ function setupCropBoxHandlers() {
     renderCropBox();
   });
 
-  wrapper.addEventListener('pointerup', () => { cropInteraction = null; });
-  wrapper.addEventListener('pointercancel', () => { cropInteraction = null; });
+  function finishInteraction() {
+    if (!cropInteraction) return;
+    cropInteraction = null;
+    // Persist the box position/size (as a fraction of the image) for next time
+    cropBoxFraction = pixelsToFraction(cropBoxState, imgContentRect());
+    saveCropFraction();
+  }
+
+  wrapper.addEventListener('pointerup', finishInteraction);
+  wrapper.addEventListener('pointercancel', finishInteraction);
 }
 
 setupCropBoxHandlers();
 
 async function cropToBlob(imgEl, boxState) {
-  const wrapper = document.getElementById('cropWrapper');
-  const wrapperRect = wrapper.getBoundingClientRect();
-  const imgRect = imgEl.getBoundingClientRect();
+  const rect = imgContentRect();
+  const scaleX = imgEl.naturalWidth / rect.width;
+  const scaleY = imgEl.naturalHeight / rect.height;
 
-  const imgLeft = imgRect.left - wrapperRect.left;
-  const imgTop = imgRect.top - wrapperRect.top;
-
-  const scaleX = imgEl.naturalWidth / imgRect.width;
-  const scaleY = imgEl.naturalHeight / imgRect.height;
-
-  const sx = (boxState.x - imgLeft) * scaleX;
-  const sy = (boxState.y - imgTop) * scaleY;
+  const sx = (boxState.x - rect.left) * scaleX;
+  const sy = (boxState.y - rect.top) * scaleY;
   const sw = boxState.w * scaleX;
   const sh = boxState.h * scaleY;
 
@@ -644,6 +733,7 @@ document.getElementById('cropFullBtn').addEventListener('click', async () => {
 });
 
 document.getElementById('cropCancelBtn').addEventListener('click', closeCropOverlay);
+
 
 document.getElementById('fileInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
