@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 06:45</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 07:00</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -127,20 +127,20 @@
   <div id="resultsBox"></div>
 
   <div id="cropOverlay" style="display:none;position:fixed;top:0;left:0;right:0;height:100vh;height:100dvh;background:#000;z-index:1000;flex-direction:column;align-items:center;justify-content:flex-start;padding:10px;overflow-y:auto;box-sizing:border-box">
+    <div style="display:flex;flex-direction:row;gap:8px;width:100%;max-width:420px;margin-bottom:8px;flex-shrink:0">
+      <button id="cropConfirmBtn" style="flex:2;height:44px;border:none;border-radius:10px;background:#ff3b30;color:#fff;font-size:14px;font-weight:600">עבד אזור מסומן</button>
+      <button id="cropFullBtn" style="flex:1;height:44px;border:none;border-radius:10px;background:#555;color:#fff;font-size:13px">כל התמונה</button>
+      <button id="cropCancelBtn" style="flex:1;height:44px;border:none;border-radius:10px;background:#333;color:#fff;font-size:13px">ביטול</button>
+    </div>
     <div style="color:#fff;font-size:13px;text-align:center;margin-bottom:6px;flex-shrink:0">גררו מלבן סביב האזור שרוצים לקרוא (למשל השם והכתובת ליד הסיכה)</div>
     <div id="cropWrapper" style="position:relative;touch-action:none;line-height:0;display:flex;align-items:center;justify-content:center;width:100%;flex-shrink:0">
-      <img id="cropImage" style="max-width:100%;max-height:55vh;width:auto;height:auto;display:block;user-select:none;-webkit-user-drag:none;object-fit:contain">
+      <img id="cropImage" style="max-width:100%;max-height:65vh;width:auto;height:auto;display:block;user-select:none;-webkit-user-drag:none;object-fit:contain">
       <div id="cropBox" style="position:absolute;border:2px solid #ff3b30;background:rgba(255,59,48,0.15);display:none;touch-action:none;box-sizing:border-box">
         <div class="crop-handle" data-corner="tl" style="position:absolute;left:-16px;top:-16px;width:32px;height:32px;background:#ff3b30;border:3px solid #fff;border-radius:50%;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>
         <div class="crop-handle" data-corner="tr" style="position:absolute;right:-16px;top:-16px;width:32px;height:32px;background:#ff3b30;border:3px solid #fff;border-radius:50%;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>
         <div class="crop-handle" data-corner="bl" style="position:absolute;left:-16px;bottom:-16px;width:32px;height:32px;background:#ff3b30;border:3px solid #fff;border-radius:50%;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>
         <div class="crop-handle" data-corner="br" style="position:absolute;right:-16px;bottom:-16px;width:32px;height:32px;background:#ff3b30;border:3px solid #fff;border-radius:50%;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>
       </div>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px;width:100%;max-width:420px;margin-top:10px;flex-shrink:0">
-      <button id="cropConfirmBtn" style="height:44px;border:none;border-radius:10px;background:#ff3b30;color:#fff;font-size:15px;font-weight:600">עבד את האזור המסומן</button>
-      <button id="cropFullBtn" style="height:40px;border:none;border-radius:10px;background:#555;color:#fff;font-size:14px">עבד את כל התמונה</button>
-      <button id="cropCancelBtn" style="height:40px;border:none;border-radius:10px;background:#333;color:#fff;font-size:14px">ביטול</button>
     </div>
   </div>
 
@@ -316,6 +316,18 @@ function stripAddressNoiseWords(text) {
   return cleaned.replace(/\s+/g, ' ').trim();
 }
 
+// Strips stray punctuation/symbols that add no location info and can break
+// geocoding - e.g. a lone leading/trailing comma, OCR artifacts like ®%¥|[]*.
+function cleanAddressForSearch(text) {
+  let cleaned = text;
+  cleaned = cleaned.replace(/[®%¥|\[\]()*@<>`~^_=+{};"'"'""״׳]/g, ' ');
+  cleaned = cleaned.replace(/,{2,}/g, ',');
+  cleaned = cleaned.replace(/\s*,\s*/g, ', ');
+  cleaned = cleaned.replace(/\s+/g, ' ');
+  cleaned = cleaned.replace(/^[,\s]+|[,\s]+$/g, '');
+  return cleaned.trim();
+}
+
 function processText(raw, autoOpen) {
   const errorOut = document.getElementById('errorOut');
   const resultsBox = document.getElementById('resultsBox');
@@ -364,7 +376,11 @@ function processText(raw, autoOpen) {
   }
 
   // Fallback: plain address text
-  const address = raw.trim();
+  const address = cleanAddressForSearch(raw);
+  if (!address) {
+    errorOut.textContent = 'לא נשאר תוכן לעיבוד אחרי הניקוי';
+    return null;
+  }
   const links = buildLinksFromAddress(address);
   resultsBox.appendChild(renderPointCard('📍 כתובת', address, links, address));
   return { label: '📍 כתובת', address: address };
