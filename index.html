@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 05:40</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-08-24 06:00</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -125,6 +125,19 @@
   <div class="error" id="errorOut"></div>
 
   <div id="resultsBox"></div>
+
+  <div id="cropOverlay" style="display:none;position:fixed;inset:0;background:#000;z-index:1000;flex-direction:column;align-items:center;justify-content:flex-start;padding:16px;overflow:auto">
+    <div style="color:#fff;font-size:14px;text-align:center;margin-bottom:10px">גררו מלבן סביב האזור שרוצים לקרוא (למשל השם והכתובת ליד הסיכה)</div>
+    <div id="cropWrapper" style="position:relative;touch-action:none;max-width:100%;line-height:0">
+      <img id="cropImage" style="max-width:100%;display:block;user-select:none;-webkit-user-drag:none">
+      <div id="cropRect" style="position:absolute;border:2px solid #ff3b30;background:rgba(255,59,48,0.2);display:none;pointer-events:none"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:420px;margin-top:16px">
+      <button id="cropConfirmBtn" style="height:46px;border:none;border-radius:10px;background:#ff3b30;color:#fff;font-size:16px;font-weight:600">עבד את האזור המסומן</button>
+      <button id="cropFullBtn" style="height:46px;border:none;border-radius:10px;background:#555;color:#fff;font-size:15px">עבד את כל התמונה</button>
+      <button id="cropCancelBtn" style="height:46px;border:none;border-radius:10px;background:#333;color:#fff;font-size:15px">ביטול</button>
+    </div>
+  </div>
 
   <div class="hint">הוסיפו את הדף הזה למסך הבית לגישה מהירה</div>
 
@@ -439,25 +452,129 @@ if (new URLSearchParams(window.location.search).get('action') === 'voice') {
   });
 }
 
-document.getElementById('fileInput').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
+let cropCurrentFile = null;
+let cropDragging = false;
+let cropStartX = 0;
+let cropStartY = 0;
+
+function openCropOverlay(file) {
+  cropCurrentFile = file;
+  const img = document.getElementById('cropImage');
+  const rect = document.getElementById('cropRect');
+  rect.style.display = 'none';
+  const url = URL.createObjectURL(file);
+  img.onload = () => { URL.revokeObjectURL(url); };
+  img.src = url;
+  document.getElementById('cropOverlay').style.display = 'flex';
+}
+
+function closeCropOverlay() {
+  document.getElementById('cropOverlay').style.display = 'none';
+  cropCurrentFile = null;
+}
+
+function setupCropDragHandlers() {
+  const wrapper = document.getElementById('cropWrapper');
+  const rectEl = document.getElementById('cropRect');
+
+  function getPoint(evt) {
+    const bounds = wrapper.getBoundingClientRect();
+    return { x: evt.clientX - bounds.left, y: evt.clientY - bounds.top };
+  }
+
+  wrapper.addEventListener('pointerdown', (evt) => {
+    cropDragging = true;
+    const p = getPoint(evt);
+    cropStartX = p.x;
+    cropStartY = p.y;
+    rectEl.style.left = p.x + 'px';
+    rectEl.style.top = p.y + 'px';
+    rectEl.style.width = '0px';
+    rectEl.style.height = '0px';
+    rectEl.style.display = 'block';
+    wrapper.setPointerCapture(evt.pointerId);
+  });
+
+  wrapper.addEventListener('pointermove', (evt) => {
+    if (!cropDragging) return;
+    const p = getPoint(evt);
+    const x = Math.min(p.x, cropStartX);
+    const y = Math.min(p.y, cropStartY);
+    const w = Math.abs(p.x - cropStartX);
+    const h = Math.abs(p.y - cropStartY);
+    rectEl.style.left = x + 'px';
+    rectEl.style.top = y + 'px';
+    rectEl.style.width = w + 'px';
+    rectEl.style.height = h + 'px';
+  });
+
+  wrapper.addEventListener('pointerup', () => { cropDragging = false; });
+  wrapper.addEventListener('pointercancel', () => { cropDragging = false; });
+}
+
+setupCropDragHandlers();
+
+async function cropToBlob(imgEl, rectEl) {
+  const displayedRect = rectEl.getBoundingClientRect();
+  const imgRect = imgEl.getBoundingClientRect();
+  const scaleX = imgEl.naturalWidth / imgRect.width;
+  const scaleY = imgEl.naturalHeight / imgRect.height;
+
+  const sx = (displayedRect.left - imgRect.left) * scaleX;
+  const sy = (displayedRect.top - imgRect.top) * scaleY;
+  const sw = displayedRect.width * scaleX;
+  const sh = displayedRect.height * scaleY;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = sw;
+  canvas.height = sh;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(imgEl, sx, sy, sw, sh, 0, 0, sw, sh);
+  return new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
+}
+
+document.getElementById('cropConfirmBtn').addEventListener('click', async () => {
+  const rectEl = document.getElementById('cropRect');
+  const imgEl = document.getElementById('cropImage');
+
+  if (rectEl.style.display === 'none' || parseFloat(rectEl.style.width) < 10) {
+    document.getElementById('errorOut').textContent = 'סמנו קודם מלבן על התמונה';
+    return;
+  }
+
+  const blob = await cropToBlob(imgEl, rectEl);
+  closeCropOverlay();
+  try {
+    await runOcrOnImage(blob);
+  } catch (err) {
+    document.getElementById('errorOut').textContent = 'שגיאה בקריאת הטקסט מהתמונה';
+  }
+});
+
+document.getElementById('cropFullBtn').addEventListener('click', async () => {
+  const file = cropCurrentFile;
+  closeCropOverlay();
   if (!file) return;
   try {
     await runOcrOnImage(file);
   } catch (err) {
     document.getElementById('errorOut').textContent = 'שגיאה בקריאת הטקסט מהתמונה';
   }
+});
+
+document.getElementById('cropCancelBtn').addEventListener('click', closeCropOverlay);
+
+document.getElementById('fileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  openCropOverlay(file);
   e.target.value = '';
 });
 
-document.getElementById('cameraInput').addEventListener('change', async (e) => {
+document.getElementById('cameraInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  try {
-    await runOcrOnImage(file);
-  } catch (err) {
-    document.getElementById('errorOut').textContent = 'שגיאה בקריאת הטקסט מהתמונה';
-  }
+  openCropOverlay(file);
   e.target.value = '';
 });
 
