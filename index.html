@@ -98,7 +98,7 @@
 </head>
 <body>
   <h1>ניווט מהיר</h1>
-  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-09-05 13:15</div>
+  <div style="font-size:12px;color:#999;margin-top:-14px;margin-bottom:14px">גרסה 2026-09-05 15:00</div>
 
   <div class="card">
     <textarea id="input" placeholder="הדביקו כאן קישור מיקום (share.here.com וכו') או קואורדינטות (32.38344, 34.86757)"></textarea>
@@ -115,6 +115,8 @@
     <button class="primary" id="cameraBtn" style="background:#ff9800">📷 צלם עכשיו</button>
     <button class="primary" id="micBtn" style="background:#e91e63">🎤 הקלטה קולית</button>
     <button class="primary" id="myLocationBtn" style="background:#34a853">📍 המיקום שלי</button>
+    <button class="primary" id="liveLocationToggle" style="background:#777">⚪ מצב מיקום חי: כבוי</button>
+    <button class="primary" id="combinedDisplayBtn" style="background:#0b5fff">🗺️ הצגה משולבת (GovMap)</button>
   </div>
 
   <div id="headingDebug" style="text-align:center;font-size:13px;color:#555;margin-bottom:4px">כיוון: --°</div>
@@ -124,6 +126,9 @@
     <button id="calibPlus" style="width:44px;height:36px;border:none;border-radius:8px;background:#eee;font-size:16px">+10°</button>
   </div>
   <div id="mapContainer" style="display:none;height:220px;border-radius:16px;overflow:hidden;margin-bottom:16px;max-width:420px;width:100%"></div>
+  <div id="govmapContainer" style="display:none;height:340px;border-radius:16px;overflow:hidden;margin-bottom:16px;max-width:420px;width:100%">
+    <iframe id="govmapFrame" style="width:100%;height:100%;border:none" allow="geolocation"></iframe>
+  </div>
   <div id="distanceDisplay" style="display:none;text-align:center;font-size:22px;font-weight:700;color:#1a8a3a;margin-bottom:16px"></div>
   <button id="autoZoomToggle" style="display:none;width:100%;max-width:420px;height:44px;margin-bottom:16px;border:none;border-radius:10px;font-size:15px;font-weight:600;background:#34a853;color:#fff">זום אוטומטי: פעיל 🔍</button>
 
@@ -1066,6 +1071,11 @@ async function showLiveMapToDestination(destLat, destLng, label) {
 }
 
 
+// Shared "last known location" so other buttons (like the GovMap combined
+// display) can use it without re-asking for a fresh GPS fix every time.
+let lastKnownLat = null;
+let lastKnownLng = null;
+
 document.getElementById('myLocationBtn').addEventListener('click', () => {
   const errorOut = document.getElementById('errorOut');
 
@@ -1080,6 +1090,8 @@ document.getElementById('myLocationBtn').addEventListener('click', () => {
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
       errorOut.textContent = '';
+      lastKnownLat = pos.coords.latitude;
+      lastKnownLng = pos.coords.longitude;
       const lat = pos.coords.latitude.toFixed(7);
       const lng = pos.coords.longitude.toFixed(7);
       document.getElementById('input').value = lat + ', ' + lng;
@@ -1093,6 +1105,140 @@ document.getElementById('myLocationBtn').addEventListener('click', () => {
     },
     { enableHighAccuracy: true, timeout: 10000 }
   );
+});
+
+// ---- מצב מיקום חי (ללא יעד) ----
+let liveWatchId = null;
+
+async function startLiveLocationMode() {
+  const mapContainer = document.getElementById('mapContainer');
+  mapContainer.style.display = 'block';
+  document.getElementById('distanceDisplay').style.display = 'none';
+
+  if (!window.L) {
+    await loadStylesheet('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+    await loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
+  }
+
+  if (naviMap) {
+    naviMap.remove();
+    naviMap = null;
+    myLocationMarker = null;
+    destMarker = null;
+  }
+
+  await setupCompassListener();
+
+  liveWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      lastKnownLat = lat;
+      lastKnownLng = lng;
+
+      const gpsHeading = (typeof pos.coords.heading === 'number' && !isNaN(pos.coords.heading) && pos.coords.speed > 0.5)
+        ? pos.coords.heading : null;
+      const heading = currentHeading(gpsHeading);
+
+      if (!naviMap) {
+        naviMap = window.L.map('mapContainer').setView([lat, lng], 16);
+        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(naviMap);
+      }
+
+      if (myLocationMarker) {
+        myLocationMarker.setLatLng([lat, lng]);
+        myLocationMarker.setIcon(myLocationIcon(heading));
+      } else {
+        myLocationMarker = window.L.marker([lat, lng], { icon: myLocationIcon(heading) }).addTo(naviMap);
+        naviMap.setView([lat, lng], 16);
+      }
+    },
+    (err) => {
+      document.getElementById('errorOut').textContent = 'שגיאה במעקב מיקום חי: ' + err.message;
+    },
+    { enableHighAccuracy: true }
+  );
+}
+
+function stopLiveLocationMode() {
+  if (liveWatchId !== null) {
+    navigator.geolocation.clearWatch(liveWatchId);
+    liveWatchId = null;
+  }
+}
+
+document.getElementById('liveLocationToggle').addEventListener('click', async () => {
+  const btn = document.getElementById('liveLocationToggle');
+  if (liveWatchId === null) {
+    await startLiveLocationMode();
+    btn.textContent = '🔴 מצב מיקום חי: פעיל';
+    btn.style.background = '#e53935';
+  } else {
+    stopLiveLocationMode();
+    btn.textContent = '⚪ מצב מיקום חי: כבוי';
+    btn.style.background = '#777';
+  }
+});
+
+// ---- הצגה משולבת: GovMap ממוקם על המיקום הנוכחי ----
+// GovMap עובד במערכת קואורדינטות ישראלית (ITM/EPSG:2039), לכן צריך המרה.
+let proj4Loaded = false;
+
+async function loadProj4() {
+  if (proj4Loaded && window.proj4) return;
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js');
+  window.proj4.defs('EPSG:2039',
+    '+proj=tmerc +lat_0=31.73439361111111 +lon_0=35.20451694444445 +k=1.0000067 ' +
+    '+x_0=219529.584 +y_0=626907.39 +ellps=GRS80 ' +
+    '+towgs84=-24.0024,-17.1032,-17.8444,-0.33009,-1.85284,1.66969,5.4262 +units=m +no_defs'
+  );
+  proj4Loaded = true;
+}
+
+async function wgs84ToItm(lat, lng) {
+  await loadProj4();
+  const [x, y] = window.proj4('EPSG:4326', 'EPSG:2039', [lng, lat]);
+  return { x, y };
+}
+
+document.getElementById('combinedDisplayBtn').addEventListener('click', async () => {
+  const errorOut = document.getElementById('errorOut');
+  let lat = lastKnownLat;
+  let lng = lastKnownLng;
+
+  if (lat === null || lng === null) {
+    if (!navigator.geolocation) {
+      errorOut.textContent = 'שירותי מיקום לא נתמכים בדפדפן הזה';
+      return;
+    }
+    errorOut.textContent = 'מאתר מיקום…';
+    try {
+      const pos = await new Promise((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
+      );
+      lat = pos.coords.latitude;
+      lng = pos.coords.longitude;
+      lastKnownLat = lat;
+      lastKnownLng = lng;
+    } catch (e) {
+      errorOut.textContent = 'לא הצלחתי לאתר מיקום: ' + e.message;
+      return;
+    }
+  }
+
+  errorOut.textContent = 'ממיר קואורדינטות עבור GovMap…';
+  try {
+    const itm = await wgs84ToItm(lat, lng);
+    const url = 'https://www.govmap.gov.il/?z=8&c=' + itm.x.toFixed(2) + ',' + itm.y.toFixed(2);
+    document.getElementById('govmapFrame').src = url;
+    document.getElementById('govmapContainer').style.display = 'block';
+    errorOut.textContent = '';
+    document.getElementById('govmapContainer').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (e) {
+    errorOut.textContent = 'שגיאה בהמרת הקואורדינטות ל-GovMap: ' + e.message;
+  }
 });
 
 let ocrWorker = null;
@@ -1197,4 +1343,5 @@ async function runOcrOnImage(blob) {
 </script>
 </body>
 </html>
+
 
